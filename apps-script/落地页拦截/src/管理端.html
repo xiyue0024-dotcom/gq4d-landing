@@ -166,6 +166,14 @@
   </div>
 
   <div class="card">
+    <h2>待联系 <span class="pill pending" id="leadPending">待处理 —</span></h2>
+    <div id="leads"><div class="empty">载入后显示</div></div>
+    <button class="ghost" id="btnLeads">刷新待联系</button>
+    <div class="msg" id="msg7"></div>
+    <p class="hint">「误拦」= 加入白名单并保留线索；「黑名单」= 加入黑名单且不再联系。点「联系」会用你的浏览器打开对方 WhatsApp。</p>
+  </div>
+
+  <div class="card">
     <h2>最近 500 条统计</h2>
     <div class="stat">
       <div><span>总数</span><b id="stTotal">—</b></div>
@@ -211,7 +219,7 @@
   document.getElementById('btnLoad').onclick = loadConfig;
 
   document.getElementById('btnAll').onclick = function () {
-    loadConfig(); loadBlocks(); loadStats();
+    loadConfig(); loadBlocks(); loadLeads(); loadStats();
   };
 
   document.getElementById('btnWa').onclick = function () {
@@ -396,6 +404,114 @@
     }
   }
 
+  var LEADS = [];
+
+  function loadLeads() {
+    google.script.run
+      .withSuccessHandler(renderLeads)
+      .withFailureHandler(function (e) { say('msg7', e.message, false); })
+      .getLeads(pwd(), 30);
+  }
+
+  function renderLeads(list) {
+    LEADS = list || [];
+
+    var pending = 0;
+    LEADS.forEach(function (x) { if (x.status === '待处理') pending++; });
+    var badge = document.getElementById('leadPending');
+    badge.textContent = '待处理 ' + pending;
+    badge.className = 'pill ' + (pending ? 'pending' : 'done');
+
+    var box = document.getElementById('leads');
+    box.innerHTML = '';
+    if (!LEADS.length) {
+      box.innerHTML = '<div class="empty">暂无待联系记录</div>';
+      return;
+    }
+
+    var tbl = document.createElement('table');
+    tbl.className = 'tbl';
+    tbl.innerHTML = '<thead><tr><th>时间</th><th>号码</th><th>姓名</th><th>评分</th><th>状态</th><th>操作</th></tr></thead>';
+    var tb = document.createElement('tbody');
+
+    LEADS.forEach(function (x) {
+      var tr = document.createElement('tr');
+      var st = x.status || '待处理';
+      var cls = st === '待处理' ? 'pending' : (st === '已误拦' ? 'auto' : 'done');
+
+      tr.innerHTML =
+        '<td>' + esc(x.time) + '</td>' +
+        '<td>' + esc(x.nomor || '') + '</td>' +
+        '<td>' + esc(x.nama || '') + '</td>' +
+        '<td>' + esc(x.score) + '</td>' +
+        '<td><span class="pill ' + cls + '">' + esc(st) + '</span>' +
+          (x.handledAt ? '<div class="hint">' + esc(x.handler || 'admin') + ' · ' + esc(x.handledAt) + '</div>' : '') +
+        '</td>' +
+        '<td class="ops"></td>';
+
+      var ops = tr.querySelector('.ops');
+      var closed = (st === '已联系' || st === '已拉黑');
+
+      if (!closed) {
+        var bCall = document.createElement('button');
+        bCall.className = 'mini';
+        bCall.textContent = '联系';
+        bCall.onclick = function () { contactLead(x); };
+        ops.appendChild(bCall);
+
+        var bFp = document.createElement('button');
+        bFp.className = 'mini ghost';
+        bFp.textContent = '误拦';
+        bFp.style.marginLeft = '6px';
+        bFp.onclick = function () { leadAction(x.row, 'fp', x.nomor); };
+        ops.appendChild(bFp);
+
+        var bBl = document.createElement('button');
+        bBl.className = 'mini danger';
+        bBl.textContent = '黑名单';
+        bBl.style.marginLeft = '6px';
+        bBl.onclick = function () { leadAction(x.row, 'bl', x.nomor); };
+        ops.appendChild(bBl);
+      } else {
+        ops.innerHTML = '<span class="hint">已关闭</span>';
+      }
+
+      tb.appendChild(tr);
+    });
+
+    tbl.appendChild(tb);
+    box.appendChild(tbl);
+  }
+
+  function contactLead(x) {
+    var n = String(x.nomor || '').replace(/[^0-9]/g, '');
+    if (!n) { toast('该记录没有号码', 'err'); return; }
+    window.open('https://wa.me/' + n, '_blank');
+    google.script.run
+      .withSuccessHandler(function (r) { toast(r, 'ok'); loadLeads(); loadStats(); })
+      .withFailureHandler(function (e) { toast(e.message, 'err'); })
+      .markLeadContacted(x.row, pwd());
+  }
+
+  function leadAction(row, kind, nomor) {
+    var tip = kind === 'fp'
+      ? '确认误拦？\n\n' + nomor + ' 将加入白名单，并保留为可联系线索。\n之后可以点「联系」直接打开 WhatsApp。'
+      : '确认黑名单？\n\n' + nomor + ' 将加入黑名单，并标记为不再联系。';
+    if (!confirm(tip)) return;
+
+    if (kind === 'fp') {
+      google.script.run
+        .withSuccessHandler(function (r) { toast(r, 'ok'); loadLeads(); loadStats(); })
+        .withFailureHandler(function (e) { toast(e.message, 'err'); })
+        .markLeadFalsePositive(row, pwd());
+    } else {
+      google.script.run
+        .withSuccessHandler(function (r) { toast(r, 'ok'); loadLeads(); loadStats(); })
+        .withFailureHandler(function (e) { toast(e.message, 'err'); })
+        .markLeadBlacklist(row, pwd());
+    }
+  }
+
   function loadStats() {
     google.script.run
       .withSuccessHandler(function (s) {
@@ -415,6 +531,7 @@
   }
 
   document.getElementById('btnBlocks').onclick = loadBlocks;
+  document.getElementById('btnLeads').onclick = loadLeads;
   document.getElementById('btnStats').onclick = loadStats;
 
   document.getElementById('blkFilter').onchange = function () { renderBlocks(BLOCKS); };

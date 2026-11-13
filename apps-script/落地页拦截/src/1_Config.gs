@@ -162,6 +162,7 @@ const CFG = {
     CHANGE: '配置变更',
     DEVICE: '设备名单',
     PROFILE: '号码档案',
+    LEAD: '待联系',
   },
 };
 
@@ -186,6 +187,7 @@ const HEADERS = {
   CHANGE: ['时间', '操作人', '项目', '旧值', '新值', '备注'],
   DEVICE: ['Kunci', '类型', '状态', '备注', '更新时间'],
   PROFILE: ['号码', '总访问', '放行', '拒绝', '首次出现', '最后出现', '设备数', 'IP数', '状态', '更新时间'],
+  LEAD: ['时间', '号码', '姓名', '评分', '原因', '设备ID', '指纹', 'IP', '状态', '处理人', '处理时间', '备注'],
 };
 
 /* ======================= 脚本属性 ======================= */
@@ -461,6 +463,7 @@ function setupSheets() {
   ensureSheet_(CFG.SHEET.CHANGE, HEADERS.CHANGE);
   ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
   ensureSheet_(CFG.SHEET.PROFILE, HEADERS.PROFILE);
+  ensureSheet_(CFG.SHEET.LEAD, HEADERS.LEAD);
 
   const sh = ss_().getSheetByName(CFG.SHEET.KONFIG);
   const t = readTable_(sh);
@@ -489,7 +492,7 @@ function setupSheets() {
 
   return logAndReturn_('已建表：' + [CFG.SHEET.KONFIG, CFG.SHEET.VISIT, CFG.SHEET.BLOCK,
     CFG.SHEET.ARCHIVE, CFG.SHEET.ERR, CFG.SHEET.AKUN, CFG.SHEET.LOCAL_BLACK,
-    CFG.SHEET.CHANGE, CFG.SHEET.DEVICE, CFG.SHEET.PROFILE].join(' / '));
+    CFG.SHEET.CHANGE, CFG.SHEET.DEVICE, CFG.SHEET.PROFILE, CFG.SHEET.LEAD].join(' / '));
 }
 
 /* ======================= 表格优化（手动入口） ======================= */

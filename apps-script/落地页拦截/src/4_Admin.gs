@@ -169,6 +169,103 @@ function markBlockConfirm(row, pwd) {
   return '已加入本地黑名单：' + info.nomor + '；后续同号码直接拒绝，该记录不计入有效客户';
 }
 
+/** 待联系队列：被拦的提交 */
+function getLeads(pwd, limit) {
+  checkAdminPwd_(pwd);
+  const sh = ensureSheet_(CFG.SHEET.LEAD, HEADERS.LEAD);
+  const last = sh.getLastRow();
+  const n = Math.min(last - 1, Math.max(1, Math.min(Number(limit) || 30, 100)));
+  if (n <= 0) return [];
+
+  const start = last - n + 1;
+  const vals = sh.getRange(start, 1, n, HEADERS.LEAD.length).getDisplayValues();
+  const m = headerMap_(HEADERS.LEAD);
+  const out = [];
+  for (let i = vals.length - 1; i >= 0; i--) {
+    const r = vals[i];
+    out.push({
+      row: start + i,
+      time: r[m['时间']],
+      nomor: r[m['号码']],
+      nama: r[m['姓名']],
+      score: r[m['评分']],
+      reasons: r[m['原因']],
+      status: String(r[m['状态']] || '').trim() || '待处理',
+      handler: r[m['处理人']],
+      handledAt: r[m['处理时间']],
+      note: r[m['备注']]
+    });
+  }
+  return out;
+}
+
+/** 已联系 */
+function markLeadContacted(row, pwd) {
+  checkAdminPwd_(pwd);
+  const info = leadRowInfo_(row);
+  if (info.status === '已拉黑') throw new Error('该记录已拉黑，不能标记为已联系');
+  updateLeadStatus_(row, '已联系', '人工：已通过 WhatsApp 联系');
+  logConfigChange_('LEAD_CONTACTED', '', info.nomor, '待联系（行 ' + Number(row) + '）');
+  return '已标记为已联系：' + info.nomor;
+}
+
+/** 误拦：加入白名单，保留线索供联系 */
+function markLeadFalsePositive(row, pwd) {
+  checkAdminPwd_(pwd);
+  const info = leadRowInfo_(row);
+  if (info.status === '已拉黑') throw new Error('该记录已拉黑，不能改判为误拦');
+
+  if (info.nomor) upsertLocalBlack_(info.nomor, 'Aman', '人工：误拦放行', 'manual');
+  if (info.dev) upsertDevice_('dev:' + info.dev, 'device', 'Aman', '人工：误拦放行');
+  if (info.fp) upsertDevice_('fp:' + info.fp, 'fp', 'Aman', '人工：误拦放行');
+
+  updateLeadStatus_(row, '已误拦', '已加入白名单，可联系客户');
+  logConfigChange_('LEAD_FALSE_POSITIVE', '', info.nomor, '误拦（行 ' + Number(row) + '）');
+  return '已判定为误拦：' + info.nomor + ' 已加入白名单，可直接联系';
+}
+
+/** 确认黑名单：加入黑名单，不再联系 */
+function markLeadBlacklist(row, pwd) {
+  checkAdminPwd_(pwd);
+  const info = leadRowInfo_(row);
+  if (info.status === '已联系') throw new Error('该记录已联系，不能改判为黑名单');
+
+  if (info.nomor) upsertLocalBlack_(info.nomor, 'Studio', '人工：确认黑名单', 'manual');
+  if (info.dev) upsertDevice_('dev:' + info.dev, 'device', 'Studio', '人工：确认黑名单');
+  if (info.fp) upsertDevice_('fp:' + info.fp, 'fp', 'Studio', '人工：确认黑名单');
+
+  updateLeadStatus_(row, '已拉黑', '已加入黑名单，不再联系');
+  logConfigChange_('LEAD_BLACKLIST', '', info.nomor, '确认黑名单（行 ' + Number(row) + '）');
+  return '已加入黑名单：' + info.nomor + '，后续不再联系';
+}
+
+/* ======================= 内部 ======================= */
+
+function leadRowInfo_(row) {
+  const r = Number(row);
+  if (!r || r < 2) throw new Error('行号无效');
+  const sh = ensureSheet_(CFG.SHEET.LEAD, HEADERS.LEAD);
+  const m = headerMap_(HEADERS.LEAD);
+  const vals = sh.getRange(r, 1, 1, HEADERS.LEAD.length).getDisplayValues()[0];
+  return {
+    nomor: normPhone_(vals[m['号码']]),
+    dev: vals[m['设备ID']] || '',
+    fp: vals[m['指纹']] || '',
+    status: String(vals[m['状态']] || '').trim()
+  };
+}
+
+function updateLeadStatus_(row, status, note) {
+  const r = Number(row);
+  if (!r || r < 2) throw new Error('行号无效');
+  const sh = ensureSheet_(CFG.SHEET.LEAD, HEADERS.LEAD);
+  const m = headerMap_(HEADERS.LEAD);
+  sh.getRange(r, m['状态'] + 1).setValue(status);
+  sh.getRange(r, m['处理人'] + 1).setValue('admin');
+  sh.getRange(r, m['处理时间'] + 1).setValue(timeStr_());
+  sh.getRange(r, m['备注'] + 1).setValue(note);
+}
+
 /** 最近 500 条统计：放行/拒绝/原因 Top */
 function getStats(pwd) {
   checkAdminPwd_(pwd);

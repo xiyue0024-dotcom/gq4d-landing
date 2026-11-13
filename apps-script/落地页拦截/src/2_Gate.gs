@@ -99,6 +99,7 @@ function handleGate_(d, cfg) {
       setBatchBlock_(rec, v.burst.numbers, CFG.RISK.BURST_WINDOW_MIN * 60);
     }
     autoLocalBlack_(rec, v);
+    if (rec.aksi === 'submit') writeLead_(rec, v);
     try {
       setProp_(PROP.LAST_DECISION, JSON.stringify({
         t: timeStr_(), n: rec.nomor, score: v.score,
@@ -137,6 +138,7 @@ function buildVisit_(d, aksi) {
     aksi: aksi || d.a || 'jump',
     nomor: normPhone_(nomorRaw),
     nomorRaw: clip_(String(nomorRaw), 32),
+    nama: clip_(String(d.nm || ''), 40),
     dev: clip_(String(d.d || ''), 64),
     fp: clip_(String(d.f || ''), 64),
     vid: (d.fp && d.fp.vid) ? clip_(String(d.fp.vid), 64) : '',
@@ -285,6 +287,62 @@ function writeBlockLog_(rec, v, cfg) {
     withLock_(function () { appendByHeader_(sh, obj); }, 15000);
   } catch (e) {
     logError_('写拦截证据', e, { n: rec.nomor });
+  }
+}
+
+/** 被拦的提交进入「待联系」队列；同号码重复提交只更新，不重复建行 */
+function writeLead_(rec, v) {
+  if (!rec.nomor) return;
+  try {
+    const sh = ensureSheet_(CFG.SHEET.LEAD, HEADERS.LEAD);
+    const t = readTable_(sh);
+    const cN = colOf_(t.map, '号码');
+    const cT = colOf_(t.map, '时间');
+    const cNm = colOf_(t.map, '姓名');
+    const cS = colOf_(t.map, '评分');
+    const cR = colOf_(t.map, '原因');
+    const cD = colOf_(t.map, '设备ID');
+    const cF = colOf_(t.map, '指纹');
+    const cI = colOf_(t.map, 'IP');
+    const cSt = colOf_(t.map, '状态');
+
+    let found = -1;
+    for (let i = 0; i < t.rows.length; i++) {
+      if (normPhone_(cell_(t.rows[i], cN)) === rec.nomor) { found = i; break; }
+    }
+
+    if (found >= 0) {
+      const r = found + 2;
+      sh.getRange(r, cT + 1).setValue(timeStr_());
+      sh.getRange(r, cNm + 1).setValue(rec.nama);
+      sh.getRange(r, cS + 1).setValue(v.score);
+      sh.getRange(r, cR + 1).setValue((v.reasons || []).join(';'));
+      sh.getRange(r, cD + 1).setValue(rec.dev);
+      sh.getRange(r, cF + 1).setValue(rec.fp);
+      sh.getRange(r, cI + 1).setValue(rec.ip);
+      // 已拉黑的不回退；其余重新进入待处理
+      if (String(cell_(t.rows[found], cSt) || '') !== '已拉黑') {
+        sh.getRange(r, cSt + 1).setValue('待处理');
+      }
+      return;
+    }
+
+    appendByHeader_(sh, {
+      '时间': timeStr_(),
+      '号码': rec.nomor,
+      '姓名': rec.nama,
+      '评分': v.score,
+      '原因': (v.reasons || []).join(';'),
+      '设备ID': rec.dev,
+      '指纹': rec.fp,
+      'IP': rec.ip,
+      '状态': '待处理',
+      '处理人': '',
+      '处理时间': '',
+      '备注': ''
+    });
+  } catch (e) {
+    logError_('写待联系', e, { n: rec.nomor });
   }
 }
 

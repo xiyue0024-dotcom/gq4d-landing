@@ -1298,6 +1298,7 @@ function buildProbe(d, aksi, fp) {
     v: CONFIG.noticeVersion,
     a: aksi || "jump",
     n: (d && d.wa) ? String(d.wa).replace(/[^0-9]/g, "") : "",
+    nm: (d && d.nama) ? String(d.nama).slice(0, 40) : "",
     nv: CONFIG.noticeVersion,
     nt: new Date().toISOString(),
     d: getDeviceId(),
