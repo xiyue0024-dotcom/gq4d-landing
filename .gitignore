@@ -12,3 +12,9 @@ node_modules/
 
 # 工作区内部笔记
 .workbuddy-ai/
+
+# Wrangler 本地缓存
+.wrangler/
+
+# 页面快照（体积大，不入库）
+快照/
