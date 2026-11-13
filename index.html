@@ -93,6 +93,22 @@
   .err-msg{display:none;font-size:12px;color:var(--err);font-weight:700;margin-top:12px;letter-spacing:.02em;}
   .q.is-error .err-msg{display:block;}
 
+  /* ---------- 分步问卷 ---------- */
+  .stepnav{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px 0 2px;}
+  .stepnav[hidden]{display:none;}
+  .stepback{border:0;background:none;font:inherit;font-size:12px;font-weight:700;letter-spacing:.05em;color:var(--muted);cursor:pointer;padding:6px 2px;transition:color .18s;}
+  .stepback:hover{color:var(--ink);}
+  .stepback[hidden]{display:none;}
+  .stepnum{font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--light);font-weight:700;margin-left:auto;}
+  .q.is-step,.contact.is-step{display:none;margin-top:0;border-bottom:0;padding-top:22px;}
+  .q.is-step.is-active,.contact.is-step.is-active{display:block;}
+  .q.is-step.is-in{animation:stepIn .34s cubic-bezier(.2,.7,.3,1) both;}
+  @keyframes stepIn{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+  .q-next{margin-top:18px;}
+  .q-next[hidden]{display:none;}
+  .q-next .btn{width:100%;}
+  @media (prefers-reduced-motion:reduce){.q.is-step.is-in{animation:none;}}
+
   /* ---------- 联系资料 ---------- */
   .contact{margin-top:38px;background:#fff;border:1px solid var(--rule);border-radius:4px;padding:26px 22px 24px;}
   .contact-head{font-family:Georgia,serif;font-size:19px;margin:0 0 6px;font-weight:400;}
@@ -224,6 +240,14 @@
   .jump-text{font-size:12.5px;color:var(--muted);line-height:1.7;margin:0;}
   .jump-text strong{display:block;color:var(--ink);font-size:13.5px;margin-bottom:6px;}
   .jump-mask.is-busy .jump-spin{display:none;}
+  .jump-bar{height:3px;border-radius:99px;background:var(--rule);margin:14px 0 0;overflow:hidden;}
+  .jump-bar i{display:block;height:100%;width:0;background:var(--gold);border-radius:99px;transition:width .45s ease;}
+  .jump-bar[hidden]{display:none;}
+  .jump-actions{margin-top:16px;display:flex;flex-direction:column;gap:8px;}
+  .jump-actions[hidden]{display:none;}
+  .jump-actions .btn{padding:12px 16px;font-size:12px;}
+  .jump-mask.is-retry .jump-spin{display:none;}
+  .jump-mask.is-retry .jump-text strong{color:var(--err);}
 
   @media print{.jump-mask{display:none!important;}}
 
@@ -266,6 +290,11 @@
 </header>
 
 <main>
+  <div class="stepnav" id="stepNav" hidden>
+    <button type="button" class="stepback" id="btnBack" hidden>← Kembali</button>
+    <span class="stepnum" id="stepNum">01 / 06</span>
+  </div>
+
   <form id="form" novalidate>
 
     <!-- 01 -->
@@ -642,6 +671,11 @@
       <strong id="jumpTitle">Menghubungkan…</strong>
       <span id="jumpSub">Memeriksa koneksi…</span>
     </p>
+    <div class="jump-bar" id="jumpBar" hidden><i id="jumpBarFill"></i></div>
+    <div class="jump-actions" id="jumpActions" hidden>
+      <button type="button" class="btn gold" id="btnRetry">Coba Kirim Ulang</button>
+      <button type="button" class="btn ghost" id="btnRetryClose">Tutup</button>
+    </div>
   </div>
 </div>
 
@@ -660,9 +694,12 @@ const CONFIG = {
   fallbackIpUrl: "https://api64.ipify.org?format=json",
   noticeVersion: "v1-2026-11-13",
   consentMode: "notice_only",
-  softDelayMs: 1500,
-  softJitterMs: 700,
+  softDelayMs: 900,
+  softJitterMs: 400,
   jsonpTimeoutMs: 12000,
+  submitTimeoutMs: 9000,   // 单次提交上限；超时自动重试一次（同 rid，后端幂等）
+  submitRetries: 1,
+  fpWaitMs: 450,
   ipTimeoutMs: 3000,
   /* Fingerprint 试用（public key 可公开；secret key 只放 Worker） */
   fpEnabled: true,
@@ -848,54 +885,74 @@ function renderResult(d, allowed) {
 }
 
 /* ---------- 提交 ---------- */
+let submitting = false;
+
 form.addEventListener("submit", async function (e) {
   e.preventDefault();
+  if (submitting) return;
+
   const v = validate();
   if (!v.ok) {
-    v.firstBad.scrollIntoView({ behavior: "smooth", block: "center" });
+    const badStep = stepOf(v.firstBad);
+    const idx = stepIndexOf(badStep);
+    if (idx >= 0) showStep(idx, { manual: true });
+    setTimeout(function () {
+      try { v.firstBad.scrollIntoView({ behavior: "smooth", block: "center" }); } catch (err) {}
+    }, 80);
     return;
   }
 
+  submitting = true;
   const data = collect();
   lastPayload = data;
   lastWa = "";
 
   const btn = document.getElementById("submitBtn");
   const started = Date.now();
-  const minDelay = CONFIG.softDelayMs + Math.floor(Math.random() * CONFIG.softJitterMs);
+  const floor = CONFIG.softDelayMs + Math.floor(Math.random() * CONFIG.softJitterMs);
+  const rid = "r_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
 
   btn.disabled = true;
   btn.textContent = "Mengirim…";
   showSlowOverlay();
 
-  let res = { ok: false };
+  let res = null;
+  let failed = null;
+
   try {
     if (!CONFIG.gateUrl) {
       res = { ok: false, mode: "preview" };
     } else {
       const fp = await Promise.race([
         (fpPrefetch || (fpPrefetch = getFp())),
-        wait(600).then(function () { return null; })
+        wait(CONFIG.fpWaitMs).then(function () { return null; })
       ]);
-      const payload = buildProbe(data, "submit", fp);
-      res = (CONFIG.gateMode === "worker")
-        ? await postGate(payload)
-        : await jsonpDecide(payload);
+      const payload = pruneProbe(buildProbe(data, "submit", fp));
+      payload.rid = rid;                 // 幂等键：重试不会重复记账
+      res = await sendWithRetry(payload);
     }
   } catch (err) {
-    res = { ok: false };
+    failed = err;
+  } finally {
+    // 无论成功失败都必须收口，否则遮罩不消失、按钮永久禁用 = 页面「卡死」
+    const elapsed = Date.now() - started;
+    if (elapsed < floor) await wait(floor - elapsed);
+    stopStageTicker();
+    hideOverlay();
+    btn.disabled = false;
+    btn.textContent = "Kirim Kuesioner";
+    submitting = false;
   }
 
-  const elapsed = Date.now() - started;
-  if (elapsed < minDelay) await wait(minDelay - elapsed);
+  if (failed || !res) {
+    showRetryOverlay(failed);
+    return;
+  }
 
-  hideOverlay();
-  btn.disabled = false;
-  btn.textContent = "Kirim Kuesioner";
   try { localStorage.removeItem(DRAFT_KEY); } catch (err) {}
 
-  // 分支互斥：allow 才给 WhatsApp 按钮；deny/异常一律走「我们会联系您」
-  if (res && res.ok && res.wa) {
+  // 分支互斥：allow 才给 WhatsApp 按钮；deny 一律走「我们会联系您」
+  if (res.ok && res.wa) {
     lastWa = String(res.wa).replace(/[^0-9]/g, "");
     renderResult(data, true);
   } else {
@@ -904,37 +961,213 @@ form.addEventListener("submit", async function (e) {
   }
 });
 
+/** 提交：超时/异常自动重试一次；两次都失败才报错 */
+async function sendWithRetry(payload) {
+  const tries = 1 + (CONFIG.submitRetries || 0);
+  let lastErr = null;
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = (CONFIG.gateMode === "worker")
+        ? await postGate(payload, CONFIG.submitTimeoutMs)
+        : await jsonpDecide(payload, CONFIG.submitTimeoutMs);
+      if (r && typeof r === "object") return r;
+      lastErr = new Error("empty response");
+    } catch (err) {
+      lastErr = err;
+    }
+    if (i < tries - 1) {
+      setOverlayStage("Koneksi lambat…", "Mencoba menghubungkan ulang…");
+      await wait(350);
+    }
+  }
+  throw lastErr || new Error("gate failed");
+}
+
+/** 去掉空字段，压缩 JSONP 的 URL 长度（过长会被网关截断） */
+function pruneProbe(p) {
+  const out = {};
+  Object.keys(p || {}).forEach(function (k) {
+    const v = p[k];
+    // tr=0 是「合成点击」的重要信号，不能被当成空值丢掉
+    if (k !== "tr" && (v === null || v === undefined || v === "" || v === 0)) return;
+    if (k === "sig") {
+      const s = {};
+      Object.keys(v || {}).forEach(function (sk) {
+        if (v[sk] !== null && v[sk] !== undefined && v[sk] !== "") s[sk] = v[sk];
+      });
+      if (Object.keys(s).length) out.sig = s;
+      return;
+    }
+    if (k === "fp") {
+      if (v && (v.vid || typeof v.ss === "number")) out.fp = v;
+      return;
+    }
+    out[k] = v;
+  });
+  return out;
+}
+
+/* =========================================================
+   分步问卷
+   - 单选：选中后 280ms 自动进入下一步（给选中态留出视觉反馈）
+   - 多选（q5）：必须手动点「Lanjut」，至少选一项才可用
+   - 回退修改：不再自动连跳，改为手动「Lanjut」，避免改一题被带走
+   - 校验失败：定位到出错步骤，不让人在别处找红框
+   ========================================================= */
+const STEPS = Array.prototype.slice.call(
+  document.querySelectorAll("#form > .q, #form > .contact")
+);
+const REDUCE_MOTION = !!(window.matchMedia &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+let stepIdx = 0;
+let maxReached = 0;
+let editingStep = false;
+let autoTimer = 0;
+
+function pad2(n) { return ("0" + n).slice(-2); }
+
+function stepIndexOf(el) {
+  for (let i = 0; i < STEPS.length; i++) if (STEPS[i] === el) return i;
+  return -1;
+}
+
+function stepOf(el) {
+  return el ? (el.closest(".q") || el.closest(".contact")) : null;
+}
+
+function refreshNextBtns() {
+  STEPS.forEach(function (sec, i) {
+    const btn = sec._nextBtn;
+    if (!btn) return;
+    const isQ5 = sec.getAttribute("data-q") === "q5";
+    const show = (i === stepIdx) && (isQ5 || editingStep);
+    btn.hidden = !show;
+    if (show && isQ5) {
+      btn.disabled = form.querySelectorAll('input[name="q5"]:checked').length === 0;
+    }
+  });
+}
+
+function showStep(i, opts) {
+  opts = opts || {};
+  i = Math.max(0, Math.min(i, STEPS.length - 1));
+  const prev = STEPS[stepIdx];
+  const next = STEPS[i];
+
+  if (prev && prev !== next) prev.classList.remove("is-active", "is-in");
+
+  stepIdx = i;
+  if (i > maxReached) maxReached = i;
+  editingStep = !!opts.manual;
+
+  next.classList.add("is-step", "is-active");
+  if (!REDUCE_MOTION) {
+    next.classList.remove("is-in");
+    void next.offsetWidth;               // 强制回流，保证动画可重播
+    next.classList.add("is-in");
+    setTimeout(function () { next.classList.remove("is-in"); }, 380);
+  }
+
+  const nav = document.getElementById("stepNav");
+  if (nav) {
+    nav.hidden = false;
+    document.getElementById("stepNum").textContent =
+      pad2(i + 1) + " / " + pad2(STEPS.length);
+    document.getElementById("btnBack").hidden = (i === 0);
+    const r = nav.getBoundingClientRect();
+    if (opts.scroll !== false && Math.abs(r.top - 52) > 8) {
+      window.scrollTo({
+        top: Math.max(0, window.pageYOffset + r.top - 52),
+        behavior: REDUCE_MOTION ? "auto" : "smooth"
+      });
+    }
+  }
+  refreshNextBtns();
+}
+
+function scheduleAdvance(fromIdx) {
+  clearTimeout(autoTimer);
+  autoTimer = setTimeout(function () {
+    if (stepIdx !== fromIdx) return;
+    if (editingStep) { refreshNextBtns(); return; }
+    if (fromIdx >= STEPS.length - 1) return;
+    showStep(fromIdx + 1);
+  }, 280);
+}
+
+/* 每个问题步骤底部生成「Lanjut」按钮（q5 与回退修改时显示） */
+STEPS.forEach(function (sec, i) {
+  sec.classList.add("is-step");        // 未激活的步骤由 CSS 隐藏
+  if (i === STEPS.length - 1) return;
+  const wrap = document.createElement("div");
+  wrap.className = "q-next";
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "btn gold";
+  b.textContent = (i === STEPS.length - 2) ? "Lanjut ke Data Kontak" : "Lanjut";
+  b.hidden = true;
+  b.addEventListener("click", function () {
+    editingStep = false;
+    showStep(i + 1);
+  });
+  wrap.appendChild(b);
+  sec.appendChild(wrap);
+  sec._nextBtn = b;
+});
+
+document.getElementById("btnBack").addEventListener("click", function () {
+  clearTimeout(autoTimer);
+  showStep(stepIdx - 1, { manual: true });
+});
+
 /* ---------- 交互联动 ---------- */
 form.addEventListener("change", function (e) {
   const t = e.target;
-  if (t.type === "radio" || t.type === "checkbox") {
-    const sec = t.closest(".q");
-    if (sec) sec.classList.remove("is-error");
-    if (t.name === "consent") {
-      document.getElementById("consent-wrap").classList.remove("is-error");
-      document.getElementById("consent-err").style.display = "none";
-    }
-    if (t.closest(".field")) t.closest(".field").classList.remove("is-error");
-    syncOptionStates();
-    updateProgress();
-    saveDraft();
+  if (t.type !== "radio" && t.type !== "checkbox") return;
 
-    // 单选：自动滚到下一题
-    if (t.type === "radio") {
-      const secs = Array.prototype.slice.call(document.querySelectorAll(".q"));
-      const idx = secs.indexOf(t.closest(".q"));
-      const next = secs[idx + 1];
-      if (next) {
-        setTimeout(function () {
-          const r = next.getBoundingClientRect();
-          if (r.top > window.innerHeight - 140 || r.bottom < 100) {
-            next.scrollIntoView({ behavior: "smooth", block: "start" });
-          }
-        }, 220);
-      }
-    }
+  const sec = t.closest(".q");
+  if (sec) sec.classList.remove("is-error");
+  if (t.name === "consent") {
+    document.getElementById("consent-wrap").classList.remove("is-error");
+    document.getElementById("consent-err").style.display = "none";
+  }
+  const fld = t.closest(".field");
+  if (fld) fld.classList.remove("is-error");
+
+  syncOptionStates();
+  updateProgress();
+  saveDraft();
+
+  if (t.type === "radio") {
+    const idx = stepIndexOf(sec);
+    if (idx >= 0) scheduleAdvance(idx);
+  } else {
+    refreshNextBtns();
   }
 });
+
+/* 从草稿恢复时，直接落到第一处未答完的位置 */
+function firstUnansweredStep() {
+  for (let i = 0; i < STEPS.length; i++) {
+    const sec = STEPS[i];
+    if (sec.id === "contact") {
+      const nama = (document.getElementById("nama").value || "").trim();
+      const wa = (document.getElementById("wa").value || "").replace(/[^0-9]/g, "");
+      if (nama.length >= 2 && wa.length >= 9) continue;
+      return i;
+    }
+    const q = sec.getAttribute("data-q");
+    if (!q) continue;
+    if (q === "q5") {
+      if (form.querySelectorAll('input[name="q5"]:checked').length) continue;
+      return i;
+    }
+    if (form.querySelector('input[name="' + q + '"]:checked')) continue;
+    return i;
+  }
+  return STEPS.length - 1;
+}
 
 ["nama", "wa"].forEach(function (id) {
   const el = document.getElementById(id);
@@ -1018,6 +1251,7 @@ document.getElementById("btnEdit").addEventListener("click", function () {
   form.style.display = "";
   document.body.classList.remove("is-done");
   updateProgress();
+  showStep(0, { manual: true, scroll: false });
   window.scrollTo({ top: 0, behavior: "smooth" });
 });
 
@@ -1320,9 +1554,9 @@ function buildProbe(d, aksi, fp) {
 }
 
 /* ---------- Worker 判定（同源代理，可读 JSON） ---------- */
-async function postGate(payload) {
+async function postGate(payload, timeoutMs) {
   const ctrl = new AbortController();
-  const timer = setTimeout(function () { ctrl.abort(); }, CONFIG.jsonpTimeoutMs);
+  const timer = setTimeout(function () { ctrl.abort(); }, timeoutMs || CONFIG.jsonpTimeoutMs);
   try {
     const r = await fetch(CONFIG.gateUrl, {
       method: "POST",
@@ -1340,7 +1574,7 @@ async function postGate(payload) {
 }
 
 /* ---------- JSONP 降级（仅在 gateMode=jsonp 时使用） ---------- */
-function jsonpDecide(payload) {
+function jsonpDecide(payload, timeoutMs) {
   return new Promise(function (resolve, reject) {
     const cb = "__gq4d_cb_" + Date.now().toString(36) + Math.floor(Math.random() * 1000);
     const script = document.createElement("script");
@@ -1356,7 +1590,7 @@ function jsonpDecide(payload) {
       done = true;
       cleanup();
       reject(new Error("jsonp timeout"));
-    }, CONFIG.jsonpTimeoutMs);
+    }, timeoutMs || CONFIG.jsonpTimeoutMs);
 
     window[cb] = function (res) {
       if (done) return;
@@ -1380,29 +1614,108 @@ function jsonpDecide(payload) {
   });
 }
 
-/* ---------- 遮罩 ---------- */
+/* ---------- 遮罩：分阶段文案 + 进度条 + 失败重试 ---------- */
+let stageTimer = 0;
+let stageStart = 0;
+
+const STAGES = [
+  [0, "Mengirim data…", "Menghubungkan ke server…"],
+  [1100, "Memverifikasi…", "Memeriksa koneksi dan keamanan…"],
+  [2600, "Menyiapkan hasil…", "Hampir selesai…"],
+  [5200, "Koneksi lambat…", "Masih memproses, mohon tunggu sebentar…"]
+];
+
+function setOverlayStage(title, sub) {
+  const t = document.getElementById("jumpTitle");
+  const s = document.getElementById("jumpSub");
+  if (t && title) t.textContent = title;
+  if (s && sub) s.textContent = sub;
+}
+
+function startStageTicker() {
+  stopStageTicker();
+  stageStart = Date.now();
+  const bar = document.getElementById("jumpBar");
+  const fill = document.getElementById("jumpBarFill");
+  if (bar) bar.hidden = false;
+  if (fill) fill.style.width = "6%";
+
+  const tick = function () {
+    const el = Date.now() - stageStart;
+    for (let i = STAGES.length - 1; i >= 0; i--) {
+      if (el >= STAGES[i][0]) { setOverlayStage(STAGES[i][1], STAGES[i][2]); break; }
+    }
+    if (fill) {
+      // 进度条只做“有在动”的观感，不假装精确：上限 92%
+      const p = Math.min(92, 6 + (el / 4200) * 86);
+      fill.style.width = p.toFixed(1) + "%";
+    }
+    stageTimer = setTimeout(tick, 320);
+  };
+  tick();
+}
+
+function stopStageTicker() {
+  if (stageTimer) { clearTimeout(stageTimer); stageTimer = 0; }
+  const bar = document.getElementById("jumpBar");
+  if (bar) bar.hidden = true;
+}
+
 function showSlowOverlay() {
   const m = document.getElementById("jumpMask");
   if (!m) return;
-  m.classList.remove("is-busy");
+  m.classList.remove("is-busy", "is-retry");
   m.classList.add("is-on");
-  document.getElementById("jumpTitle").textContent = "Menghubungkan…";
-  document.getElementById("jumpSub").textContent = "Memeriksa koneksi…";
+  const acts = document.getElementById("jumpActions");
+  if (acts) acts.hidden = true;
+  setOverlayStage("Menghubungkan…", "Memeriksa koneksi…");
+  startStageTicker();
 }
 
 function showBusyOverlay(msg) {
   const m = document.getElementById("jumpMask");
   if (!m) return;
-  m.classList.add("is-on");
-  m.classList.add("is-busy");
-  document.getElementById("jumpTitle").textContent = "Koneksi lambat";
-  document.getElementById("jumpSub").textContent = msg || "Silakan coba beberapa saat lagi.";
+  m.classList.add("is-on", "is-busy");
+  m.classList.remove("is-retry");
+  stopStageTicker();
+  setOverlayStage("Koneksi lambat", msg || "Silakan coba beberapa saat lagi.");
+}
+
+/** 明确失败：不伪装成「我们会联系您」，给重试入口 */
+function showRetryOverlay(err) {
+  const m = document.getElementById("jumpMask");
+  if (!m) return;
+  m.classList.add("is-on", "is-retry");
+  m.classList.remove("is-busy");
+  stopStageTicker();
+  const offline = (typeof navigator !== "undefined" && navigator.onLine === false);
+  setOverlayStage(
+    offline ? "Tidak ada koneksi internet" : "Koneksi terputus",
+    offline
+      ? "Data Anda belum terkirim. Sambungkan internet lalu kirim ulang."
+      : "Data Anda belum terkirim. Silakan kirim ulang."
+  );
+  const acts = document.getElementById("jumpActions");
+  if (acts) acts.hidden = false;
 }
 
 function hideOverlay() {
   const m = document.getElementById("jumpMask");
-  if (m) { m.classList.remove("is-on"); m.classList.remove("is-busy"); }
+  if (m) m.classList.remove("is-on", "is-busy", "is-retry");
+  const acts = document.getElementById("jumpActions");
+  if (acts) acts.hidden = true;
+  stopStageTicker();
 }
+
+document.getElementById("btnRetry").addEventListener("click", function () {
+  hideOverlay();
+  if (typeof form.requestSubmit === "function") form.requestSubmit();
+  else form.dispatchEvent(new Event("submit", { cancelable: true }));
+});
+
+document.getElementById("btnRetryClose").addEventListener("click", function () {
+  hideOverlay();
+});
 
 /* ---------- 跳转（全站唯一出口） ---------- */
 function summaryOrEmpty() {
@@ -1529,6 +1842,7 @@ if (consentEl) consentEl.checked = true;
 loadDraft();
 updateProgress();
 syncOptionStates();
+showStep(firstUnansweredStep(), { scroll: false });
 resolveIp();
 startFp();
 applyFpDisclosure();

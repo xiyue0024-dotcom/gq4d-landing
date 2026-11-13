@@ -52,7 +52,7 @@ function loadSharedBlacklist_() {
 function loadLocalBlacklist_() {
   const out = {};
   try {
-    const sh = ensureSheet_(CFG.SHEET.LOCAL_BLACK, HEADERS.LOCAL_BLACK);
+    const sh = hotSheet_(CFG.SHEET.LOCAL_BLACK, HEADERS.LOCAL_BLACK);
     const t = readTable_(sh);
     const cNum = colOf_(t.map, 'Nomor');
     const cSt = colOf_(t.map, 'Status');
@@ -81,7 +81,7 @@ function loadBlacklist_() {
   const out = {};
   Object.keys(shared).forEach(function (k) { out[k] = shared[k]; });
   Object.keys(local).forEach(function (k) { out[k] = local[k]; });
-  try { cache.put('bl_v1', JSON.stringify(out), 60); } catch (e) {}
+  try { cache.put('bl_v1', JSON.stringify(out), 300); } catch (e) {}
   return out;
 }
 
@@ -99,7 +99,7 @@ function loadDeviceList_() {
   }
   const out = {};
   try {
-    const sh = ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
+    const sh = hotSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
     const t = readTable_(sh);
     const cK = colOf_(t.map, 'Kunci');
     const cS = colOf_(t.map, '状态');
@@ -111,7 +111,7 @@ function loadDeviceList_() {
   } catch (e) {
     logError_('读取设备名单', e);
   }
-  try { cache.put('dl_v1', JSON.stringify(out), 60); } catch (e) {}
+  try { cache.put('dl_v1', JSON.stringify(out), 600); } catch (e) {}
   return out;
 }
 
@@ -158,7 +158,7 @@ function validIdPhone_(nomor) {
 
 /** 回扫访问日志尾部，返回 sinceMs 之后的记录（只读必要列，降低读取量） */
 function readRecentVisits_(sinceMs, scanRows) {
-  const sh = ensureSheet_(CFG.SHEET.VISIT, HEADERS.VISIT);
+  const sh = hotSheet_(CFG.SHEET.VISIT, HEADERS.VISIT);
   const last = sh.getLastRow();
   if (last < 2) return [];
   const n = Math.min(last - 1, scanRows || CFG.RISK.SCAN_ROWS);

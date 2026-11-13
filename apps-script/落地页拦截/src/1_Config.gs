@@ -6,7 +6,7 @@
  * 函数约定：`_` 结尾为私有函数，不进「运行」下拉框；手动入口不加尾下划线。
  */
 
-const BUILD_VERSION = 'v1.0.0';
+const BUILD_VERSION = 'v1.9.4';
 
 /* ======================= 配置 ======================= */
 
@@ -72,7 +72,7 @@ const CFG = {
     BURST_WINDOW_MIN: 10,
     BURST_MIN_NUMBERS: 3,
     BURST_MIN_REQUESTS: 5,
-    SCAN_ROWS: 300,
+    SCAN_ROWS: 200,
     MATCH_BLACK_DEVICE: true,
     FP_COLLISION_GUARD: true,
     BLACK_TYPES: ['black', 'watch'],   // Studio/Rekan/Pantau 算黑名单；Aman 豁免
@@ -207,11 +207,26 @@ const PROP = {
 
 /** 同一次执行内的表对象缓存，避免重复 getSheetByName / 表头检查 */
 var _SHEET_CACHE = {};
+/** 同一次执行内的表头缓存，避免 appendByHeader_ 每次回读第一行 */
+var _HEADER_CACHE = {};
+/** 本次执行是否已持有脚本锁（可重入，避免同一请求反复抢锁） */
+var _LOCK_HELD = false;
 
-/** 读脚本属性，带默认值 */
+/**
+ * 表结构版本号：改动 HEADERS 后 +1，会让所有表在 6 小时内重新校验一次表头。
+ * 不做成每次请求校验——那是之前提交卡死的主因之一。
+ */
+const SCHEMA_VER = 'v7';
+
+/** 读脚本属性，带默认值（同一执行内缓存，减少 Properties 调用） */
 function prop_(key, dflt) {
+  if (Object.prototype.hasOwnProperty.call(_PROP_CACHE, key)) {
+    const c = _PROP_CACHE[key];
+    return (c === null || c === undefined || c === '') ? (dflt === undefined ? '' : dflt) : c;
+  }
   try {
     const v = PropertiesService.getScriptProperties().getProperty(key);
+    _PROP_CACHE[key] = v;
     return (v === null || v === undefined || v === '') ? (dflt === undefined ? '' : dflt) : v;
   } catch (e) {
     return dflt === undefined ? '' : dflt;
@@ -220,23 +235,46 @@ function prop_(key, dflt) {
 
 /** 写脚本属性 */
 function setProp_(key, value) {
+  _PROP_CACHE[key] = String(value == null ? '' : value);
   PropertiesService.getScriptProperties().setProperty(key, String(value == null ? '' : value));
 }
 
 /** 自有 Spreadsheet：优先 SHEET_ID；Web App 里 getActive 可能为 null */
+var _SS = null;
+var _SS_BLACK = null;
+var _PROP_CACHE = {};
+var _SHEETS_BY_NAME = null;
+
+/**
+ * 一次 getSheets() 建好「表名 → Sheet」索引。
+ * 原来每张表各打一次 getSheetByName（每次 100–500ms），5 张表就是 5 次。
+ * Sheet.getName() 是本地访问器，不再产生 API 调用。
+ */
+function sheetsByName_() {
+  if (_SHEETS_BY_NAME) return _SHEETS_BY_NAME;
+  const list = ss_().getSheets();
+  const m = {};
+  for (let i = 0; i < list.length; i++) m[list[i].getName()] = list[i];
+  _SHEETS_BY_NAME = m;
+  return m;
+}
+
 function ss_() {
+  if (_SS) return _SS;
   const id = prop_(PROP.SHEET_ID, '');
-  if (id) return SpreadsheetApp.openById(id);
+  if (id) { _SS = SpreadsheetApp.openById(id); return _SS; }
   const active = SpreadsheetApp.getActive();
-  if (active) return active;
+  if (active) { _SS = active; return _SS; }
   throw new Error('未配置脚本属性 SHEET_ID，且当前上下文无绑定的表格');
 }
 
 /** 共享黑名单 Spreadsheet：只读，绝不写 */
 function blackSs_() {
+  if (_SS_BLACK) return _SS_BLACK;
   const id = prop_(PROP.BLACKLIST_SHEET_ID, '');
   if (!id) throw new Error('未配置脚本属性 BLACKLIST_SHEET_ID（签到系统所用表格 ID）');
-  return SpreadsheetApp.openById(id);
+  _SS_BLACK = SpreadsheetApp.openById(id);
+  return _SS_BLACK;
 }
 
 /** 号码归一化：统一成 62 开头纯数字；无效返回空串（用于访客号码，印尼市场） */
@@ -293,30 +331,104 @@ function ipKey_(ip) {
   return p.slice(0, 3).join('.') + '.0/24';
 }
 
-/** 确保表存在且表头正确；号码列设为文本格式 */
+/**
+ * 确保表存在且表头正确；号码列设为文本格式
+ * ---------------------------------------------------------------
+ * 性能要点（2026-11-13 修订）：
+ *   1. 表头校验结果按「表名 + SCHEMA_VER」缓存 6 小时，不再每个请求回读第一行；
+ *   2. 号码列文本格式只在建表/换表头时按窗口设置，并缓存已覆盖行数，
+ *      不再每次请求对 getMaxRows()-1 行 × 4 列重复 setNumberFormat。
+ *   3. 热路径读表用 hotSheet_()，完全跳过表头校验。
+ */
 function ensureSheet_(name, headers) {
   if (_SHEET_CACHE[name]) return _SHEET_CACHE[name];
-  const ss = ss_();
-  let sh = ss.getSheetByName(name);
-  if (!sh) sh = ss.insertSheet(name);
-  const lastCol = Math.max(sh.getLastColumn(), headers.length);
-  const cur = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
-  let needHeader = false;
-  for (let i = 0; i < headers.length; i++) {
-    if (String(cur[i] || '').trim() !== headers[i]) { needHeader = true; break; }
+  const m = sheetsByName_();
+  let sh = m[name];
+  let created = false;
+  if (!sh) {
+    sh = ss_().insertSheet(name);
+    m[name] = sh;
+    created = true;
   }
-  if (needHeader) {
-    sh.getRange(1, 1, 1, headers.length).setValues([headers]);
-    sh.getRange(1, 1, 1, headers.length)
-      .setFontWeight('bold')
-      .setBackground('#F1F5F9');
-    sh.setFrozenRows(1);
+
+  const meta = meta_();
+  const flag = 'sch:' + name + ':' + SCHEMA_VER;
+  const verified = !created && meta[flag] === 1;
+
+  // 只有建表 / 表头变更 / 版本升级时才校验表头与批量设格式；
+  // 已验证过的表热路径零额外 API 调用。
+  if (!verified) {
+    const lastCol = Math.max(sh.getLastColumn(), headers.length);
+    const cur = sh.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+    let needHeader = created;
+    for (let i = 0; i < headers.length; i++) {
+      if (String(cur[i] || '').trim() !== headers[i]) { needHeader = true; break; }
+    }
+    if (needHeader) {
+      sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sh.getRange(1, 1, 1, headers.length)
+        .setFontWeight('bold')
+        .setBackground('#F1F5F9');
+      sh.setFrozenRows(1);
+      _HEADER_CACHE[name] = headers.slice();
+    }
+    ensurePhoneFormat_(sh, name, headers, true);
+    meta[flag] = 1;
+    metaSave_();
   }
-  // 号码列强制文本，避免 +62 被转成数字/科学计数
+
+  _SHEET_CACHE[name] = sh;
+  return sh;
+}
+
+/** 号码列文本格式：按 300 行窗口增量设置，6 小时内不重复写 */
+function ensurePhoneFormat_(sh, name, headers, force) {
+  const cols = [];
   ['号码', '号码原文', 'Nomor', 'Kunci'].forEach(function (h) {
     const idx = headers.indexOf(h);
-    if (idx >= 0) sh.getRange(2, idx + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setNumberFormat('@');
+    if (idx >= 0) cols.push(idx + 1);
   });
+  if (!cols.length) return;
+
+  const meta = meta_();
+  const key = 'fmt:' + name;
+  const done = Number(meta[key] || 0);
+  const last = sh.getLastRow();
+  if (!force && done >= last + 300) return;
+
+  const rows = Math.min(last + 300, sh.getMaxRows());
+  if (rows < 2) return;
+  cols.forEach(function (c) { sh.getRange(2, c, rows - 1, 1).setNumberFormat('@'); });
+  meta[key] = rows;
+  metaSave_();
+}
+
+/**
+ * 表结构元信息（表头是否已校验、号码列已格式化到第几行）
+ * 一次性读入内存，避免每张表各打一次 CacheService。
+ */
+var _META = null;
+
+function meta_() {
+  if (_META) return _META;
+  try {
+    _META = JSON.parse(CacheService.getScriptCache().get('meta_v1') || '{}') || {};
+  } catch (e) {
+    _META = {};
+  }
+  return _META;
+}
+
+function metaSave_() {
+  try { CacheService.getScriptCache().put('meta_v1', JSON.stringify(_META), 21600); } catch (e) {}
+}
+
+/** 热路径读表：不校验表头，只取表对象（表一定已由 setupAll 建好） */
+function hotSheet_(name, headers) {
+  if (_SHEET_CACHE[name]) return _SHEET_CACHE[name];
+  const m = sheetsByName_();
+  let sh = m[name];
+  if (!sh) sh = ensureSheet_(name, headers);
   _SHEET_CACHE[name] = sh;
   return sh;
 }
@@ -349,26 +461,61 @@ function cell_(row, idx) {
   return row[idx] === null || row[idx] === undefined ? '' : String(row[idx]);
 }
 
-/** 按表头顺序追加一行 */
+/**
+ * 按表头顺序追加一行
+ * - 表头只在本次执行内回读一次（原实现每次 append 都多 1 次 API 调用）
+ * - 目标行若超出已格式化窗口，只对该行的号码列补一次文本格式
+ */
 function appendByHeader_(sh, obj) {
-  const map = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0];
+  const name = sh.getName();
+  let map = _HEADER_CACHE[name];
+  if (!map) {
+    map = sh.getRange(1, 1, 1, sh.getLastColumn()).getDisplayValues()[0];
+    _HEADER_CACHE[name] = map;
+  }
+
   const row = map.map(function (h) {
     const v = obj[String(h).trim()];
     return (v === null || v === undefined) ? '' : v;
   });
-  sh.appendRow(row);
+
+  const target = sh.getLastRow() + 1;
+  const phoneCols = [];
+  for (let i = 0; i < map.length; i++) {
+    const t = String(map[i]).trim();
+    if (t === '号码' || t === '号码原文' || t === 'Nomor' || t === 'Kunci') phoneCols.push(i + 1);
+  }
+  if (phoneCols.length) {
+    const done = Number(meta_()['fmt:' + name] || 0);
+    if (target > done) {
+      for (let j = 0; j < phoneCols.length; j++) {
+        sh.getRange(target, phoneCols[j]).setNumberFormat('@');
+      }
+      meta_()['fmt:' + name] = target;
+      metaSave_();
+    }
+  }
+
+  sh.getRange(target, 1, 1, row.length).setValues([row]);
   return row;
 }
 
-/** 脚本锁包裹写操作 */
+/**
+ * 脚本锁包裹写操作
+ * 拿不到锁也继续执行：appendRow / setValues 不会写坏已有行，
+ * 顶多偶发重复行——比让访客在遮罩里干等 15 秒要好。
+ */
 function withLock_(fn, ms) {
+  if (_LOCK_HELD) return fn();
   const lock = LockService.getScriptLock();
-  const ok = lock.tryLock(ms || 20000);
+  const ok = lock.tryLock(ms || 3000);
+  if (!ok) return fn();
+  _LOCK_HELD = true;
   try {
-    if (!ok) throw new Error('获取脚本锁超时');
     return fn();
   } finally {
-    if (ok) { try { lock.releaseLock(); } catch (e) {} }
+    _LOCK_HELD = false;
+    try { lock.releaseLock(); } catch (e) {}
   }
 }
 

@@ -21,43 +21,6 @@ function doGet(e) {
   return json_({ status: 'ok', version: BUILD_VERSION, time: timeStr_() });
 }
 
-function doPost(e) {
-  let body;
-  try {
-    body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-  } catch (err) {
-    return json_({ ok: false, msg: busyMsg_(), mode: CFG.BLOCK.MODE });
-  }
-
-  const cfg = readConfig_();
-
-  if (CFG.GATE.REQUIRE_SECRET) {
-    const secret = prop_(CFG.GATE.SECRET_PROP, '');
-    if (!secret || String(body.k || '') !== secret) {
-      return json_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE });
-    }
-  }
-
-  // 提交即判定：黑名单/高风险走「我们会联系您」，正常客户才下发账号
-  if (body.a === 'submit') return json_(handleGate_(body, cfg));
-  return json_(handleGate_(body, cfg));
-}
-
-/** JSONP 降级：由 CFG.GATE.ALLOW_JSONP 控制；POST 仍强制密钥 */
-function handleJsonp_(p) {
-  const cb = String(p.cb || '').replace(/[^A-Za-z0-9_$.]/g, '').slice(0, 60);
-  const cfg = readConfig_();
-  if (!CFG.GATE.ALLOW_JSONP) {
-    return jsonp_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE }, cb);
-  }
-  try {
-    const d = JSON.parse(String(p.d || '{}'));
-    return jsonp_(handleGate_(d, cfg), cb);
-  } catch (e) {
-    return jsonp_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE }, cb);
-  }
-}
-
 /* ======================= 编排 ======================= */
 
 /** 跳转判定主流程 */
@@ -70,18 +33,18 @@ function handleGate_(d, cfg) {
     writeVisitLog_(rec, {
       deny: false, score: 0, reasons: ['暂停拦截'],
       hard: [], burst: { numbers: [] }
-    });
+    }, cfg);
     if (!wa0) return denyResponse_(cfg);
     return { ok: true, wa: wa0, mode: cfg.BLOCK_MODE };
   }
 
   if (!checkConsent_(rec, cfg)) {
-    writeVisitLog_(rec, { deny: true, score: 0, reasons: ['未取得授权'], hard: [], burst: { numbers: [] } });
+    writeVisitLog_(rec, { deny: true, score: 0, reasons: ['未取得授权'], hard: [], burst: { numbers: [] } }, cfg);
     return denyResponse_(cfg);
   }
 
   if (rateLimited_(rec.dev || rec.fp || rec.ipk)) {
-    writeVisitLog_(rec, { deny: true, score: 0, reasons: ['频控'], hard: [], burst: { numbers: [] } });
+    writeVisitLog_(rec, { deny: true, score: 0, reasons: ['频控'], hard: [], burst: { numbers: [] } }, cfg);
     return denyResponse_(cfg);
   }
 
@@ -91,7 +54,7 @@ function handleGate_(d, cfg) {
   const recent = readRecentVisits_(Date.now() - 24 * 3600000, CFG.RISK.SCAN_ROWS);
   const v = scoreVisit_(rec, bl, recent, cfg, dl);
 
-  writeVisitLog_(rec, v);
+  writeVisitLog_(rec, v, cfg);
 
   if (v.deny) {
     writeBlockLog_(rec, v, cfg);
@@ -114,7 +77,7 @@ function handleGate_(d, cfg) {
     writeVisitLog_(rec, {
       deny: true, score: 0, reasons: ['未配置进线账号'],
       hard: ['未配置进线账号'], burst: { numbers: [] }
-    });
+    }, cfg);
     return denyResponse_(cfg);
   }
 
@@ -124,7 +87,7 @@ function handleGate_(d, cfg) {
 /** 问卷提交只留痕，不判定 */
 function handleSubmit_(d, cfg) {
   const rec = buildVisit_(d, 'submit');
-  writeVisitLog_(rec, { deny: false, score: 0, reasons: ['留痕'], hard: [], burst: { numbers: [] } });
+  writeVisitLog_(rec, { deny: false, score: 0, reasons: ['留痕'], hard: [], burst: { numbers: [] } }, cfg);
   return { ok: true };
 }
 
@@ -192,7 +155,7 @@ function readConfig_() {
   } catch (e) {
     logError_('读取配置', e);
   }
-  try { cache.put('cfg_v1', JSON.stringify(cfg), 30); } catch (e) {}
+  try { cache.put('cfg_v1', JSON.stringify(cfg), 600); } catch (e) {}
   return cfg;
 }
 
@@ -218,7 +181,7 @@ function rateLimited_(key) {
 
 /* ======================= 写日志 / 证据 ======================= */
 
-function writeVisitLog_(rec, v) {
+function writeVisitLog_(rec, v, cfg) {
   try {
     const sh = ensureSheet_(CFG.SHEET.VISIT, HEADERS.VISIT);
     const obj = {
@@ -241,7 +204,7 @@ function writeVisitLog_(rec, v) {
       '判定': v.deny ? '拒绝' : '放行',
       '放行': v.deny ? '否' : '是',
       '原因': (v.reasons || []).join(';'),
-      '下发账号': v.deny ? '' : normWa_(prop_(PROP.WA_NUMBER, '')),
+      '下发账号': v.deny ? '' : getWaNumber_(cfg),
       '告知版本': rec.nv,
       '告知时间': rec.nt,
       'UA': rec.ua,
@@ -313,17 +276,12 @@ function writeLead_(rec, v) {
 
     if (found >= 0) {
       const r = found + 2;
-      sh.getRange(r, cT + 1).setValue(timeStr_());
-      sh.getRange(r, cNm + 1).setValue(rec.nama);
-      sh.getRange(r, cS + 1).setValue(v.score);
-      sh.getRange(r, cR + 1).setValue((v.reasons || []).join(';'));
-      sh.getRange(r, cD + 1).setValue(rec.dev);
-      sh.getRange(r, cF + 1).setValue(rec.fp);
-      sh.getRange(r, cI + 1).setValue(rec.ip);
-      // 已拉黑的不回退；其余重新进入待处理
-      if (String(cell_(t.rows[found], cSt) || '') !== '已拉黑') {
-        sh.getRange(r, cSt + 1).setValue('待处理');
-      }
+      // 1–9 列一次写入，替代原来 7 次 setValue（每次都是独立的 Sheets API 调用）
+      const status = (String(cell_(t.rows[found], cSt) || '') !== '已拉黑') ? '待处理' : '已拉黑';
+      sh.getRange(r, 1, 1, 9).setValues([[
+        timeStr_(), rec.nomor, rec.nama, v.score,
+        (v.reasons || []).join(';'), rec.dev, rec.fp, rec.ip, status
+      ]]);
       return;
     }
 
@@ -364,8 +322,9 @@ function autoLocalBlack_(rec, v) {
     if (found >= 0) {
       const rowIdx = found + 2;
       const cnt = Number(cell_(t.rows[found], cC) || 0) + 1;
-      sh.getRange(rowIdx, cC + 1).setValue(cnt);
-      sh.getRange(rowIdx, cL + 1).setValue(timeStr_());
+      // 命中次数 + 最后命中 相邻，一次写入
+      sh.getRange(rowIdx, Math.min(cC, cL) + 1, 1, 2)
+        .setValues([[cnt, timeStr_()]]);
     } else {
       appendByHeader_(sh, {
         'Nomor': rec.nomor,
