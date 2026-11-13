@@ -832,12 +832,12 @@ function renderResult(d, allowed) {
   if (allowed) {
     document.getElementById("doneSub").textContent =
       "Silakan lanjutkan melalui WhatsApp untuk menerima paket yang Anda pilih.";
-    if (btn) { btn.style.display = ""; bindCta(); }
+    if (btn) { btn.style.display = ""; btn.disabled = false; bindCta(); }
   } else {
     document.getElementById("doneSub").textContent =
       "Tim kami akan menghubungi Anda melalui WhatsApp " + d.wa +
       " dalam 1×24 jam kerja.";
-    if (btn) { btn.style.display = "none"; }
+    if (btn) { btn.style.display = "none"; btn.disabled = true; }
   }
 
   form.style.display = "none";
