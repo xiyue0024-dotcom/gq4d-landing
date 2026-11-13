@@ -86,8 +86,9 @@ function handleGate_(d, cfg) {
 
   // 纯点击流量没有号码：跳过名单读取，省一次共享表访问
   const bl = rec.nomor ? loadBlacklist_() : {};
+  const dl = loadDeviceList_();
   const recent = readRecentVisits_(Date.now() - 24 * 3600000, CFG.RISK.SCAN_ROWS);
-  const v = scoreVisit_(rec, bl, recent, cfg);
+  const v = scoreVisit_(rec, bl, recent, cfg, dl);
 
   writeVisitLog_(rec, v);
 
@@ -272,7 +273,13 @@ function writeBlockLog_(rec, v, cfg) {
       '命中项': (v.reasons || []).join(';'),
       '自动化信号': JSON.stringify((v.autoSig && v.autoSig.reasons) || []),
       'UA': rec.ua,
-      '告知版本': rec.nv
+      '告知版本': rec.nv,
+      // 有硬拒项 = 规则已自动判定，无需人工复核；纯评分拦截才进待处理
+      '处理状态': (v.hard && v.hard.length) ? '自动' : '待处理',
+      '处理人': '',
+      '处理时间': '',
+      '处理说明': '',
+      '影响对象': ''
     };
     withLock_(function () { appendByHeader_(sh, obj); }, 15000);
   } catch (e) {
@@ -330,8 +337,9 @@ function adminHtml_() {
 
 function setupAll() {
   const msg = setupSheets();
+  const opt = optimizeSheets();
   const trig = setupArchiveTrigger();
-  return logAndReturn_(msg + '\n归档触发器：' + trig);
+  return logAndReturn_(msg + '\n' + opt + '\n归档触发器：' + trig);
 }
 
 function setupArchiveTrigger() {

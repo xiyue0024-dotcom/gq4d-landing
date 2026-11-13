@@ -90,6 +90,52 @@ function invalidateBlacklistCache_() {
   try { CacheService.getScriptCache().remove('bl_v1'); } catch (e) {}
 }
 
+/** 设备/指纹名单：Kunci = dev:<id> 或 fp:<hash>（缓存 60 秒） */
+function loadDeviceList_() {
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('dl_v1');
+  if (hit) {
+    try { return JSON.parse(hit); } catch (e) {}
+  }
+  const out = {};
+  try {
+    const sh = ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
+    const t = readTable_(sh);
+    const cK = colOf_(t.map, 'Kunci');
+    const cS = colOf_(t.map, '状态');
+    for (let i = 0; i < t.rows.length; i++) {
+      const k = String(cell_(t.rows[i], cK) || '').trim();
+      if (!k) continue;
+      out[k] = { status: String(cell_(t.rows[i], cS) || '').trim() };
+    }
+  } catch (e) {
+    logError_('读取设备名单', e);
+  }
+  try { cache.put('dl_v1', JSON.stringify(out), 60); } catch (e) {}
+  return out;
+}
+
+/** 设备名单变更后失效缓存 */
+function invalidateDeviceCache_() {
+  try { CacheService.getScriptCache().remove('dl_v1'); } catch (e) {}
+}
+
+/** 设备/指纹状态：黑名单优先，其次白名单 */
+function deviceStatus_(rec, dl) {
+  if (!dl) return '';
+  const keys = [];
+  if (rec.dev) keys.push('dev:' + rec.dev);
+  if (rec.fp) keys.push('fp:' + rec.fp);
+  let safe = false;
+  for (let i = 0; i < keys.length; i++) {
+    const e = dl[keys[i]];
+    if (!e) continue;
+    if (e.status === 'Studio') return 'black';
+    if (e.status === 'Aman') safe = true;
+  }
+  return safe ? 'safe' : '';
+}
+
 /** 号码直查黑名单 */
 function directBlackHit_(rec, bl) {
   if (!rec.nomor) return null;
@@ -373,10 +419,27 @@ function checkConsent_(rec, cfg) {
 }
 
 /** 三层判定：硬拒 + 评分 */
-function scoreVisit_(rec, bl, recent, cfg) {
+function scoreVisit_(rec, bl, recent, cfg, dl) {
   const hard = [];
   const reasons = [];
   let score = 0;
+
+  // 设备/指纹名单：黑名单直接拒；白名单在号码合法且不在号码黑名单时放行
+  const device = deviceStatus_(rec, dl || {});
+  if (device === 'black') hard.push('设备黑名单');
+  if (device === 'safe') {
+    const direct = directBlackHit_(rec, bl);
+    const numOk = !rec.nomor || validIdPhone_(rec.nomor);
+    if (!direct && numOk) {
+      return {
+        deny: false, score: 0, reasons: ['设备白名单'], hard: [], linked: [],
+        burst: { hit: false, numbers: [] },
+        ipSig: { score: 0, datacenter: false, tzMismatch: false, reasons: [] },
+        autoSig: { score: 0, hard: [], reasons: [] },
+        fpSig: { score: 0, reasons: [], ssHigh: false }
+      };
+    }
+  }
 
   // 号段非法
   if (rec.nomor && !validIdPhone_(rec.nomor)) hard.push('号段非法');

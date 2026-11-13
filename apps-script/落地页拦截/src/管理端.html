@@ -59,10 +59,23 @@
   table.tbl td.reason{max-width:260px;color:var(--muted);}
   table.tbl td.ops{white-space:nowrap;}
   .empty{color:var(--muted);font-size:12px;padding:10px 0;}
-  .pill{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:999px;background:#F1F5F9;color:#475569;}
+  .pill{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:999px;background:#F1F5F9;color:#475569;font-weight:600;}
+  .pill.pending{background:#FBF3E2;color:#7A5312;}
+  .pill.auto{background:#E7EEF6;color:#0B2C4D;}
+  .pill.done{background:#EAF4F0;color:#1F8669;}
+  .toast-wrap{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:99;
+    display:flex;flex-direction:column;gap:8px;width:calc(100% - 36px);max-width:420px;}
+  .toast{padding:10px 14px;border-radius:8px;font-size:12.5px;line-height:1.55;color:#fff;
+    box-shadow:0 10px 28px rgba(15,23,42,.22);opacity:0;transform:translateY(-6px);
+    transition:opacity .2s ease,transform .2s ease;}
+  .toast.show{opacity:1;transform:none;}
+  .toast.ok{background:#1F8669;}
+  .toast.err{background:#C13B3B;}
+  .toast.warn{background:#B7791F;}
 </style>
 </head>
 <body>
+<div class="toast-wrap" id="toasts"></div>
 <div class="wrap">
   <h1>落地页拦截 · 管理端</h1>
   <p class="sub">改号即时生效；所有变更写入「配置变更」审计表。</p>
@@ -135,10 +148,21 @@
   </div>
 
   <div class="card">
-    <h2>最近拦截</h2>
+    <h2>最近拦截 <span class="pill pending" id="blkPending">待处理 —</span></h2>
+    <div class="row" style="margin-bottom:10px;">
+      <div style="flex:0 0 170px;">
+        <label>筛选</label>
+        <select id="blkFilter">
+          <option value="all">全部</option>
+          <option value="pending">待处理</option>
+          <option value="done">已处理</option>
+        </select>
+      </div>
+    </div>
     <div id="blocks"><div class="empty">载入后显示</div></div>
     <button class="ghost" id="btnBlocks">刷新拦截记录</button>
     <div class="msg" id="msg6"></div>
+    <p class="hint">「自动」= 命中硬拒规则，已由系统处理，无需人工复核；「待处理」= 仅因评分越过阈值，需要你判断。</p>
   </div>
 
   <div class="card">
@@ -244,54 +268,130 @@
       .getRecentBlocks(pwd(), 20);
   }
 
+  var BLOCKS = [];
+
+  function statusClass(s) {
+    if (s === '待处理') return 'pending';
+    if (s === '自动') return 'auto';
+    return 'done';
+  }
+
+  function toast(text, type) {
+    var wrap = document.getElementById('toasts');
+    var el = document.createElement('div');
+    el.className = 'toast ' + (type || 'ok');
+    el.textContent = text;
+    wrap.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('show'); });
+    setTimeout(function () {
+      el.classList.remove('show');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 250);
+    }, 3800);
+  }
+
   function renderBlocks(list) {
+    BLOCKS = list || [];
+
+    var pending = 0;
+    BLOCKS.forEach(function (b) { if (b.status === '待处理') pending++; });
+    var badge = document.getElementById('blkPending');
+    badge.textContent = '待处理 ' + pending;
+    badge.className = 'pill ' + (pending ? 'pending' : 'done');
+
+    var filter = document.getElementById('blkFilter').value;
+    var rows = BLOCKS.filter(function (b) {
+      if (filter === 'pending') return b.status === '待处理';
+      if (filter === 'done') return b.status !== '待处理';
+      return true;
+    });
+
     var box = document.getElementById('blocks');
     box.innerHTML = '';
-    if (!list || !list.length) {
-      box.innerHTML = '<div class="empty">暂无拦截记录</div>';
+    if (!rows.length) {
+      box.innerHTML = '<div class="empty">' + (filter === 'all' ? '暂无拦截记录' : '该筛选下没有记录') + '</div>';
       return;
     }
+
     var tbl = document.createElement('table');
     tbl.className = 'tbl';
-    tbl.innerHTML = '<thead><tr><th>时间</th><th>号码</th><th>评分</th><th>原因</th><th>操作</th></tr></thead>';
+    tbl.innerHTML = '<thead><tr><th>时间</th><th>号码</th><th>评分</th><th>命中 / 原因</th><th>状态</th><th>操作</th></tr></thead>';
     var tb = document.createElement('tbody');
-    list.forEach(function (b) {
+
+    rows.forEach(function (b) {
       var tr = document.createElement('tr');
+      var canAct = b.status === '待处理';
+      var detail = (b.hard ? '命中：' + b.hard + '；' : '') + '原因：' + (b.reasons || '');
+
       tr.innerHTML =
         '<td>' + esc(b.time) + '</td>' +
         '<td>' + esc(b.nomor || '（空）') + '</td>' +
         '<td>' + esc(b.score) + '</td>' +
-        '<td class="reason" title="' + esc(b.reasons) + '">' + esc(b.reasons) + '</td>' +
+        '<td class="reason" title="' + esc(detail) + '">' + esc(detail) + '</td>' +
+        '<td><span class="pill ' + statusClass(b.status) + '">' + esc(b.status) + '</span>' +
+          (b.handledAt ? '<div class="hint">' + esc(b.handler || 'admin') + ' · ' + esc(b.handledAt) + '</div>' : '') +
+        '</td>' +
         '<td class="ops"></td>';
+
       var ops = tr.querySelector('.ops');
-      var b1 = document.createElement('button');
-      b1.className = 'mini ghost'; b1.textContent = '误判';
-      b1.onclick = function () { mark(b.row, true); };
-      var b2 = document.createElement('button');
-      b2.className = 'mini danger'; b2.textContent = '确认';
-      b2.style.marginLeft = '6px';
-      b2.onclick = function () { mark(b.row, false); };
-      ops.appendChild(b1); ops.appendChild(b2);
+      if (canAct) {
+        var b1 = document.createElement('button');
+        b1.className = 'mini ghost';
+        b1.textContent = '误判';
+        b1.onclick = function () { mark(b.row, true, b.nomor, b.dev, b.fp); };
+
+        var b2 = document.createElement('button');
+        b2.className = 'mini danger';
+        b2.textContent = '确认';
+        b2.style.marginLeft = '6px';
+        b2.onclick = function () { mark(b.row, false, b.nomor, b.dev, b.fp); };
+
+        ops.appendChild(b1);
+        ops.appendChild(b2);
+      } else {
+        ops.innerHTML = '<span class="hint">已处理</span>';
+      }
+
       tb.appendChild(tr);
     });
+
     tbl.appendChild(tb);
     box.appendChild(tbl);
   }
 
-  function mark(row, isFalsePositive) {
-    var tip = isFalsePositive
-      ? '确认这是误判？该号码将加入白名单（Aman）。'
-      : '确认拦截？该号码将加入本地黑名单（Studio）。';
+  function mark(row, isFalsePositive, nomor, dev, fp) {
+    var hasNum = !!nomor;
+    var hasDevice = !!(dev || fp);
+    var tip;
+
+    if (isFalsePositive) {
+      if (hasNum) {
+        tip = '确认误判？\n\n号码 ' + nomor + ' 将加入白名单（Aman），后续同号码不再被拦截。\n该记录标记为「已误判」，不会计入有效客户。';
+      } else if (hasDevice) {
+        tip = '确认误判？\n\n该记录没有号码，将对设备/指纹加入白名单（Aman），后续同设备不再被拦截。\n该记录标记为「已误判」，不会计入有效客户。';
+      } else {
+        tip = '该记录既没有号码也没有设备标识。\n\n只能标记为「已误判」，不会改变后续判定。\n继续？';
+      }
+    } else {
+      if (hasNum) {
+        tip = '确认拦截？\n\n号码 ' + nomor + ' 将加入本地黑名单（Studio），后续同号码直接拒绝。\n该记录标记为「已确认」，不会计入有效客户。';
+      } else if (hasDevice) {
+        tip = '确认拦截？\n\n该记录没有号码，将对设备/指纹加入黑名单（Studio），后续同设备直接拒绝。\n该记录标记为「已确认」，不会计入有效客户。';
+      } else {
+        tip = '该记录既没有号码也没有设备标识。\n\n只能标记为「已确认」，不会改变后续判定。\n继续？';
+      }
+    }
+
     if (!confirm(tip)) return;
+
     if (isFalsePositive) {
       google.script.run
-        .withSuccessHandler(function (r) { say('msg6', r, true); loadBlocks(); })
-        .withFailureHandler(function (e) { say('msg6', e.message, false); })
+        .withSuccessHandler(function (r) { toast(r, 'ok'); loadBlocks(); loadStats(); })
+        .withFailureHandler(function (e) { toast(e.message, 'err'); })
         .markBlockFalsePositive(row, pwd());
     } else {
       google.script.run
-        .withSuccessHandler(function (r) { say('msg6', r, true); loadBlocks(); })
-        .withFailureHandler(function (e) { say('msg6', e.message, false); })
+        .withSuccessHandler(function (r) { toast(r, 'ok'); loadBlocks(); loadStats(); })
+        .withFailureHandler(function (e) { toast(e.message, 'err'); })
         .markBlockConfirm(row, pwd());
     }
   }
@@ -316,6 +416,8 @@
 
   document.getElementById('btnBlocks').onclick = loadBlocks;
   document.getElementById('btnStats').onclick = loadStats;
+
+  document.getElementById('blkFilter').onchange = function () { renderBlocks(BLOCKS); };
 
   function esc(s) {
     return String(s == null ? '' : s)

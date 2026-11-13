@@ -104,30 +104,69 @@ function getRecentBlocks(pwd, limit) {
       nomor: r[m['号码']],
       score: r[m['评分']],
       reasons: r[m['原因']],
+      hard: r[m['命中类型']],
       dev: r[m['设备ID']],
+      fp: r[m['指纹']],
       ip: r[m['IP']],
-      mode: r[m['模式']]
+      mode: r[m['模式']],
+      status: String(r[m['处理状态']] || '').trim() || '待处理',
+      handler: r[m['处理人']],
+      handledAt: r[m['处理时间']],
+      note: r[m['处理说明']],
+      target: r[m['影响对象']]
     });
   }
   return out;
 }
 
-/** 误判：加入白名单（Aman） */
+/** 误判：加入白名单（Aman）；无号码时只标记，不改判定 */
 function markBlockFalsePositive(row, pwd) {
   checkAdminPwd_(pwd);
-  const nomor = blockRowNumber_(row);
-  upsertLocalBlack_(nomor, 'Aman', '人工：误判放行', 'manual');
-  logConfigChange_('WHITELIST_ADD', '', nomor, '误判放行（证据行 ' + Number(row) + '）');
-  return '已加入白名单：' + nomor;
+  const info = blockRowInfo_(row);
+  if (info.status && info.status !== '待处理') {
+    throw new Error('该记录已处理：' + info.status);
+  }
+  if (!info.nomor) {
+    if (info.dev || info.fp) {
+      if (info.dev) upsertDevice_('dev:' + info.dev, 'device', 'Aman', '人工：误判放行');
+      if (info.fp) upsertDevice_('fp:' + info.fp, 'fp', 'Aman', '人工：误判放行');
+      updateBlockReview_(row, '已误判', '设备/指纹加入白名单（Aman）', '设备 ' + (info.dev || info.fp));
+      logConfigChange_('DEVICE_WHITELIST_ADD', '', info.dev || info.fp, '误判放行（证据行 ' + Number(row) + '）');
+      return '已加入设备白名单：' + (info.dev || info.fp) + '；后续同设备不再拦截，该记录不计入有效客户';
+    }
+    updateBlockReview_(row, '已误判', '无号码且无设备标识，仅标记', '仅记录');
+    logConfigChange_('BLOCK_REVIEW', '', '误判/仅标记', '证据行 ' + Number(row));
+    return '已标记为误判（该记录无号码也无设备标识，仅留痕，不影响后续判定）';
+  }
+  upsertLocalBlack_(info.nomor, 'Aman', '人工：误判放行', 'manual');
+  updateBlockReview_(row, '已误判', '号码加入白名单（Aman）', '号码 ' + info.nomor);
+  logConfigChange_('WHITELIST_ADD', '', info.nomor, '误判放行（证据行 ' + Number(row) + '）');
+  return '已加入白名单：' + info.nomor + '；后续同号码不再拦截，该记录不计入有效客户';
 }
 
-/** 确认拦截：写入本地黑名单（Studio） */
+/** 确认拦截：写入本地黑名单（Studio）；无号码时只标记 */
 function markBlockConfirm(row, pwd) {
   checkAdminPwd_(pwd);
-  const nomor = blockRowNumber_(row);
-  upsertLocalBlack_(nomor, 'Studio', '人工：确认拦截', 'manual');
-  logConfigChange_('BLACKLIST_ADD', '', nomor, '确认拦截（证据行 ' + Number(row) + '）');
-  return '已加入本地黑名单：' + nomor;
+  const info = blockRowInfo_(row);
+  if (info.status && info.status !== '待处理') {
+    throw new Error('该记录已处理：' + info.status);
+  }
+  if (!info.nomor) {
+    if (info.dev || info.fp) {
+      if (info.dev) upsertDevice_('dev:' + info.dev, 'device', 'Studio', '人工：确认拦截');
+      if (info.fp) upsertDevice_('fp:' + info.fp, 'fp', 'Studio', '人工：确认拦截');
+      updateBlockReview_(row, '已确认', '设备/指纹加入黑名单（Studio）', '设备 ' + (info.dev || info.fp));
+      logConfigChange_('DEVICE_BLACKLIST_ADD', '', info.dev || info.fp, '确认拦截（证据行 ' + Number(row) + '）');
+      return '已加入设备黑名单：' + (info.dev || info.fp) + '；后续同设备直接拒绝，该记录不计入有效客户';
+    }
+    updateBlockReview_(row, '已确认', '无号码且无设备标识，仅标记', '仅记录');
+    logConfigChange_('BLOCK_REVIEW', '', '确认/仅标记', '证据行 ' + Number(row));
+    return '已标记为确认拦截（该记录无号码也无设备标识，仅留痕）';
+  }
+  upsertLocalBlack_(info.nomor, 'Studio', '人工：确认拦截', 'manual');
+  updateBlockReview_(row, '已确认', '号码加入本地黑名单（Studio）', '号码 ' + info.nomor);
+  logConfigChange_('BLACKLIST_ADD', '', info.nomor, '确认拦截（证据行 ' + Number(row) + '）');
+  return '已加入本地黑名单：' + info.nomor + '；后续同号码直接拒绝，该记录不计入有效客户';
 }
 
 /** 最近 500 条统计：放行/拒绝/原因 Top */
@@ -159,7 +198,25 @@ function getStats(pwd) {
     .slice(0, 8)
     .map(function (k) { return { k: k, n: reasons[k] }; });
 
-  return { total: n, deny: deny, allow: n - deny, top: top };
+  // 拦截复核状态统计（最近 500 条）
+  let pending = 0, auto = 0, reviewed = 0;
+  try {
+    const bsh = ensureSheet_(CFG.SHEET.BLOCK, HEADERS.BLOCK);
+    const blast = bsh.getLastRow();
+    const bn = Math.min(blast - 1, 500);
+    if (bn > 0) {
+      const bm = headerMap_(HEADERS.BLOCK);
+      const bvals = bsh.getRange(blast - bn + 1, bm['处理状态'] + 1, bn, 1).getDisplayValues();
+      for (let i = 0; i < bvals.length; i++) {
+        const s = String(bvals[i][0] || '').trim();
+        if (s === '' || s === '待处理') pending++;
+        else if (s === '自动') auto++;
+        else reviewed++;
+      }
+    }
+  } catch (e) {}
+
+  return { total: n, deny: deny, allow: n - deny, top: top, pending: pending, auto: auto, reviewed: reviewed };
 }
 
 /* ======================= 内部 ======================= */
@@ -180,15 +237,62 @@ function checkAdminPwd_(pwd) {
   cache.remove('adm_fail');
 }
 
-/** 从拦截证据表取号码 */
-function blockRowNumber_(row) {
+/** 读取拦截证据行的关键字段 */
+function blockRowInfo_(row) {
   const r = Number(row);
   if (!r || r < 2) throw new Error('行号无效');
   const sh = ensureSheet_(CFG.SHEET.BLOCK, HEADERS.BLOCK);
-  const idx = HEADERS.BLOCK.indexOf('号码') + 1;
-  const nomor = normPhone_(sh.getRange(r, idx).getDisplayValue());
-  if (!nomor) throw new Error('该行没有有效号码');
-  return nomor;
+  const m = headerMap_(HEADERS.BLOCK);
+  const vals = sh.getRange(r, 1, 1, HEADERS.BLOCK.length).getDisplayValues()[0];
+  return {
+    nomor: normPhone_(vals[m['号码']]),
+    dev: vals[m['设备ID']] || '',
+    fp: vals[m['指纹']] || '',
+    status: String(vals[m['处理状态']] || '').trim()
+  };
+}
+
+/** 写回处理状态、处理人、处理时间、说明与影响对象 */
+function updateBlockReview_(row, status, note, target) {
+  const r = Number(row);
+  if (!r || r < 2) throw new Error('行号无效');
+  const sh = ensureSheet_(CFG.SHEET.BLOCK, HEADERS.BLOCK);
+  const m = headerMap_(HEADERS.BLOCK);
+  sh.getRange(r, m['处理状态'] + 1).setValue(status);
+  sh.getRange(r, m['处理人'] + 1).setValue('admin');
+  sh.getRange(r, m['处理时间'] + 1).setValue(timeStr_());
+  sh.getRange(r, m['处理说明'] + 1).setValue(note);
+  sh.getRange(r, m['影响对象'] + 1).setValue(target);
+}
+
+/** 写/更新设备名单（Kunci = dev:<id> 或 fp:<hash>） */
+function upsertDevice_(kunci, type, status, note) {
+  const sh = ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
+  const t = readTable_(sh);
+  const cK = colOf_(t.map, 'Kunci');
+  const cS = colOf_(t.map, '状态');
+  const cN = colOf_(t.map, '备注');
+  const cT = colOf_(t.map, '更新时间');
+
+  for (let i = 0; i < t.rows.length; i++) {
+    if (String(cell_(t.rows[i], cK) || '').trim() === kunci) {
+      const r = i + 2;
+      sh.getRange(r, cS + 1).setValue(status);
+      sh.getRange(r, cN + 1).setValue(note);
+      sh.getRange(r, cT + 1).setValue(timeStr_());
+      invalidateDeviceCache_();
+      return;
+    }
+  }
+
+  appendByHeader_(sh, {
+    'Kunci': kunci,
+    '类型': type,
+    '状态': status,
+    '备注': note,
+    '更新时间': timeStr_()
+  });
+  invalidateDeviceCache_();
 }
 
 /** 写/更新本地名单 */

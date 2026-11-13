@@ -160,6 +160,8 @@ const CFG = {
     BLACK: 'Daftar Hitam',
     LOCAL_BLACK: '本地黑名单',
     CHANGE: '配置变更',
+    DEVICE: '设备名单',
+    PROFILE: '号码档案',
   },
 };
 
@@ -175,12 +177,15 @@ const HEADERS = {
   ],
   BLOCK: [
     '时间', '号码', '命中类型', '关联号码', '关联时间', '设备ID', '指纹', 'IP',
-    'IP来源', 'ASN', '窗口号数', '模式', '原因', '评分', '命中项', '自动化信号', 'UA', '告知版本'
+    'IP来源', 'ASN', '窗口号数', '模式', '原因', '评分', '命中项', '自动化信号', 'UA', '告知版本',
+    '处理状态', '处理人', '处理时间', '处理说明', '影响对象'
   ],
   ERR: ['时间', '位置', '错误', '原始数据'],
   AKUN: ['账号', '标识', '启用', '日配额', '今日进线', '状态', '备注', '更新于'],
   LOCAL_BLACK: ['Nomor', 'Status', 'Catatan', 'Tanggal', 'Kunci', '来源', '命中次数', '最后命中'],
   CHANGE: ['时间', '操作人', '项目', '旧值', '新值', '备注'],
+  DEVICE: ['Kunci', '类型', '状态', '备注', '更新时间'],
+  PROFILE: ['号码', '总访问', '放行', '拒绝', '首次出现', '最后出现', '设备数', 'IP数', '状态', '更新时间'],
 };
 
 /* ======================= 脚本属性 ======================= */
@@ -454,6 +459,8 @@ function setupSheets() {
   ensureSheet_(CFG.SHEET.AKUN, HEADERS.AKUN);
   ensureSheet_(CFG.SHEET.LOCAL_BLACK, HEADERS.LOCAL_BLACK);
   ensureSheet_(CFG.SHEET.CHANGE, HEADERS.CHANGE);
+  ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
+  ensureSheet_(CFG.SHEET.PROFILE, HEADERS.PROFILE);
 
   const sh = ss_().getSheetByName(CFG.SHEET.KONFIG);
   const t = readTable_(sh);
@@ -482,7 +489,167 @@ function setupSheets() {
 
   return logAndReturn_('已建表：' + [CFG.SHEET.KONFIG, CFG.SHEET.VISIT, CFG.SHEET.BLOCK,
     CFG.SHEET.ARCHIVE, CFG.SHEET.ERR, CFG.SHEET.AKUN, CFG.SHEET.LOCAL_BLACK,
-    CFG.SHEET.CHANGE].join(' / '));
+    CFG.SHEET.CHANGE, CFG.SHEET.DEVICE, CFG.SHEET.PROFILE].join(' / '));
+}
+
+/* ======================= 表格优化（手动入口） ======================= */
+
+/** 冻结首行、筛选、列宽、表头保护 */
+function styleSheet_(sh, headers, widths) {
+  sh.setFrozenRows(1);
+  try {
+    if (!sh.getFilter() && sh.getLastRow() >= 1) {
+      sh.getRange(1, 1, Math.max(sh.getLastRow(), 1), headers.length).createFilter();
+    }
+  } catch (e) {}
+  Object.keys(widths || {}).forEach(function (h) {
+    const i = headers.indexOf(h);
+    if (i >= 0) sh.setColumnWidth(i + 1, widths[h]);
+  });
+  try {
+    const p = sh.getRange(1, 1, 1, headers.length).protect();
+    p.setDescription('表头（请勿修改）');
+    p.setWarningOnly(true);
+  } catch (e) {}
+}
+
+/** 下拉校验，保持状态值一致 */
+function setListValidation_(sh, headers, header, values) {
+  const i = headers.indexOf(header);
+  if (i < 0) return;
+  const rule = SpreadsheetApp.newDataValidation()
+    .requireValueInList(values, true)
+    .setAllowInvalid(false)
+    .build();
+  sh.getRange(2, i + 1, Math.max(sh.getMaxRows() - 1, 1), 1).setDataValidation(rule);
+}
+
+/** 条件格式 */
+function setRules_(sh, rules) {
+  const list = rules.map(function (r) {
+    return SpreadsheetApp.newConditionalFormatRule()
+      .whenTextEqualTo(r.text)
+      .setBackground(r.bg)
+      .setFontColor(r.font || '#1F2937')
+      .setRanges([r.range])
+      .build();
+  });
+  sh.setConditionalFormatRules(list);
+}
+
+/** 命名区域，方便公式引用 */
+function ensureNamedRange_(ss, name, range) {
+  ss.getNamedRanges().forEach(function (r) {
+    if (r.getName() === name) r.remove();
+  });
+  ss.setNamedRange(name, range);
+}
+
+/** 手动入口：一次性优化所有自有表 */
+function optimizeSheets() {
+  const ss = ss_();
+
+  const visit = ensureSheet_(CFG.SHEET.VISIT, HEADERS.VISIT);
+  styleSheet_(visit, HEADERS.VISIT, { '时间': 150, '号码': 120, '设备ID': 150, '指纹': 130, 'IP键': 130, '判定': 60 });
+  const vJ = HEADERS.VISIT.indexOf('判定') + 1;
+  setRules_(visit, [
+    { range: visit.getRange(2, vJ, Math.max(visit.getMaxRows() - 1, 1), 1), text: '拒绝', bg: '#FBF0F0', font: '#8C2B2B' },
+    { range: visit.getRange(2, vJ, Math.max(visit.getMaxRows() - 1, 1), 1), text: '放行', bg: '#EAF4F0', font: '#14624C' }
+  ]);
+
+  const block = ensureSheet_(CFG.SHEET.BLOCK, HEADERS.BLOCK);
+  styleSheet_(block, HEADERS.BLOCK, { '时间': 150, '号码': 120, '评分': 55, '处理状态': 80 });
+  const bS = HEADERS.BLOCK.indexOf('处理状态') + 1;
+  setRules_(block, [
+    { range: block.getRange(2, bS, Math.max(block.getMaxRows() - 1, 1), 1), text: '待处理', bg: '#FBF3E2', font: '#7A5312' },
+    { range: block.getRange(2, bS, Math.max(block.getMaxRows() - 1, 1), 1), text: '已误判', bg: '#EAF4F0', font: '#14624C' },
+    { range: block.getRange(2, bS, Math.max(block.getMaxRows() - 1, 1), 1), text: '已确认', bg: '#FBF0F0', font: '#8C2B2B' },
+    { range: block.getRange(2, bS, Math.max(block.getMaxRows() - 1, 1), 1), text: '自动', bg: '#E7EEF6', font: '#0B2C4D' }
+  ]);
+
+  const local = ensureSheet_(CFG.SHEET.LOCAL_BLACK, HEADERS.LOCAL_BLACK);
+  styleSheet_(local, HEADERS.LOCAL_BLACK, { 'Nomor': 130, 'Status': 80, 'Catatan': 200 });
+  setListValidation_(local, HEADERS.LOCAL_BLACK, 'Status',
+    CFG.BLACK_STATUS.concat(CFG.WATCH_STATUS, CFG.SAFE_STATUS));
+  const lS = HEADERS.LOCAL_BLACK.indexOf('Status') + 1;
+  setRules_(local, [
+    { range: local.getRange(2, lS, Math.max(local.getMaxRows() - 1, 1), 1), text: 'Aman', bg: '#EAF4F0', font: '#14624C' },
+    { range: local.getRange(2, lS, Math.max(local.getMaxRows() - 1, 1), 1), text: 'Studio', bg: '#FBF0F0', font: '#8C2B2B' }
+  ]);
+
+  const dev = ensureSheet_(CFG.SHEET.DEVICE, HEADERS.DEVICE);
+  styleSheet_(dev, HEADERS.DEVICE, { 'Kunci': 200, '类型': 70, '状态': 70, '备注': 180 });
+  setListValidation_(dev, HEADERS.DEVICE, '状态', ['Aman', 'Studio']);
+  const dS = HEADERS.DEVICE.indexOf('状态') + 1;
+  setRules_(dev, [
+    { range: dev.getRange(2, dS, Math.max(dev.getMaxRows() - 1, 1), 1), text: 'Aman', bg: '#EAF4F0', font: '#14624C' },
+    { range: dev.getRange(2, dS, Math.max(dev.getMaxRows() - 1, 1), 1), text: 'Studio', bg: '#FBF0F0', font: '#8C2B2B' }
+  ]);
+
+  const konfig = ensureSheet_(CFG.SHEET.KONFIG, HEADERS.KONFIG);
+  styleSheet_(konfig, HEADERS.KONFIG, { 'Kunci': 160, 'Nilai': 220, 'Keterangan': 300 });
+
+  ensureNamedRange_(ss, 'LOCAL_BLACK', local.getRange(1, 1, Math.max(local.getLastRow(), 1), HEADERS.LOCAL_BLACK.length));
+  ensureNamedRange_(ss, 'DEVICE_LIST', dev.getRange(1, 1, Math.max(dev.getLastRow(), 1), HEADERS.DEVICE.length));
+  ensureNamedRange_(ss, 'KONFIG', konfig.getRange(1, 1, Math.max(konfig.getLastRow(), 1), HEADERS.KONFIG.length));
+
+  return logAndReturn_('已优化：冻结首行 / 筛选 / 列宽 / 下拉校验 / 条件格式 / 命名区域');
+}
+
+/**
+ * 手动入口：按号码汇总访问记录，生成「号码档案」
+ * 参照签到系统 Daftar Hitam 的「累计/关联数/最后时间」思路，便于对照与查重。
+ */
+function rebuildNumberProfile() {
+  const sh = ensureSheet_(CFG.SHEET.VISIT, HEADERS.VISIT);
+  const last = sh.getLastRow();
+  const n = Math.min(last - 1, 5000);
+  if (n <= 0) return logAndReturn_('暂无访问数据');
+
+  const vals = sh.getRange(last - n + 1, 1, n, HEADERS.VISIT.length).getValues();
+  const m = headerMap_(HEADERS.VISIT);
+  const iT = m['时间'], iN = m['号码'], iD = m['设备ID'], iI = m['IP键'], iJ = m['判定'];
+
+  const agg = {};
+  for (let i = 0; i < vals.length; i++) {
+    const nomor = normPhone_(vals[i][iN]);
+    if (!nomor) continue;
+    const rawT = vals[i][iT];
+    const t = (rawT instanceof Date) ? rawT.getTime() : parseTime_(String(rawT));
+    const a = agg[nomor] || (agg[nomor] = {
+      total: 0, allow: 0, deny: 0, first: null, last: null, devs: {}, ips: {}
+    });
+    a.total++;
+    if (String(vals[i][iJ] || '').indexOf('拒') >= 0) a.deny++; else a.allow++;
+    if (t) {
+      if (!a.first || t < a.first) a.first = t;
+      if (!a.last || t > a.last) a.last = t;
+    }
+    if (vals[i][iD]) a.devs[String(vals[i][iD])] = 1;
+    if (vals[i][iI]) a.ips[String(vals[i][iI])] = 1;
+  }
+
+  const rows = Object.keys(agg).map(function (k) {
+    const a = agg[k];
+    return [
+      k, a.total, a.allow, a.deny,
+      a.first ? timeStr_(new Date(a.first)) : '',
+      a.last ? timeStr_(new Date(a.last)) : '',
+      Object.keys(a.devs).length,
+      Object.keys(a.ips).length,
+      '',
+      timeStr_()
+    ];
+  }).sort(function (x, y) { return y[1] - x[1]; });
+
+  const p = ensureSheet_(CFG.SHEET.PROFILE, HEADERS.PROFILE);
+  p.clearContents();
+  p.getRange(1, 1, 1, HEADERS.PROFILE.length).setValues([HEADERS.PROFILE]);
+  if (rows.length) {
+    p.getRange(2, 1, rows.length, HEADERS.PROFILE.length).setValues(rows);
+  }
+  styleSheet_(p, HEADERS.PROFILE, { '号码': 130, '首次出现': 150, '最后出现': 150 });
+  return logAndReturn_('号码档案已重建：' + rows.length + ' 个号码（最近 ' + n + ' 条访问）');
 }
 
 /**
