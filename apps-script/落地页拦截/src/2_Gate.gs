@@ -38,7 +38,8 @@ function doPost(e) {
     }
   }
 
-  if (body.a === 'submit') return json_(handleSubmit_(body, cfg));
+  // 提交即判定：黑名单/高风险走「我们会联系您」，正常客户才下发账号
+  if (body.a === 'submit') return json_(handleGate_(body, cfg));
   return json_(handleGate_(body, cfg));
 }
 
@@ -61,7 +62,7 @@ function handleJsonp_(p) {
 
 /** 跳转判定主流程 */
 function handleGate_(d, cfg) {
-  const rec = buildVisit_(d, 'jump');
+  const rec = buildVisit_(d, (d && d.a === 'submit') ? 'submit' : 'jump');
 
   // 紧急开关：暂停拦截时全部放行，但仍记录（用于误杀事故止损）
   if (cfg.PAUSE) {

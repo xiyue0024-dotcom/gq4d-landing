@@ -679,6 +679,7 @@ const bar = document.getElementById("bar");
 const tbCount = document.getElementById("tbCount");
 const resultEl = document.getElementById("result");
 let lastPayload = null;
+let lastWa = "";
 
 /* ---------- 选中态 ---------- */
 function syncOptionStates() {
@@ -796,7 +797,7 @@ function summaryText(d) {
 }
 
 /* ---------- 渲染结果 ---------- */
-function renderResult(d) {
+function renderResult(d, allowed) {
   const body = document.getElementById("summaryBody");
   body.innerHTML = "";
   summaryLines(d).forEach(function (row) {
@@ -823,28 +824,31 @@ function renderResult(d) {
     body.appendChild(div);
   });
 
+  const name = d.nama.split(" ")[0];
   document.getElementById("doneTitle").textContent =
-    "Terima kasih, " + d.nama.split(" ")[0] + ". Kuesioner Anda telah kami terima.";
-  document.getElementById("doneSub").textContent =
-    "Tim kami akan menghubungi Anda melalui WhatsApp " + d.wa +
-    " dalam 1×24 jam kerja untuk menyerahkan paket yang Anda pilih.";
+    "Terima kasih, " + name + ". Kuesioner Anda telah kami terima.";
+
+  const btn = document.getElementById("btnWa");
+  if (allowed) {
+    document.getElementById("doneSub").textContent =
+      "Silakan lanjutkan melalui WhatsApp untuk menerima paket yang Anda pilih.";
+    if (btn) { btn.style.display = ""; bindCta(); }
+  } else {
+    document.getElementById("doneSub").textContent =
+      "Tim kami akan menghubungi Anda melalui WhatsApp " + d.wa +
+      " dalam 1×24 jam kerja.";
+    if (btn) { btn.style.display = "none"; }
+  }
 
   form.style.display = "none";
   resultEl.style.display = "block";
   document.body.classList.add("is-done");
   tbCount.textContent = "Terkirim";
   window.scrollTo({ top: 0, behavior: "smooth" });
-
-  // 进线按钮只负责显示；账号由后端在 allow 时下发（见 decideAndJump）
-  const btn = document.getElementById("btnWa");
-  if (btn) {
-    btn.style.display = "";
-    bindCta();
-  }
 }
 
 /* ---------- 提交 ---------- */
-form.addEventListener("submit", function (e) {
+form.addEventListener("submit", async function (e) {
   e.preventDefault();
   const v = validate();
   if (!v.ok) {
@@ -854,25 +858,49 @@ form.addEventListener("submit", function (e) {
 
   const data = collect();
   lastPayload = data;
+  lastWa = "";
+
   const btn = document.getElementById("submitBtn");
+  const started = Date.now();
+  const minDelay = CONFIG.softDelayMs + Math.floor(Math.random() * CONFIG.softJitterMs);
 
-  const finish = function () {
-    try { localStorage.removeItem(DRAFT_KEY); } catch (err) {}
-    renderResult(data);
-  };
+  btn.disabled = true;
+  btn.textContent = "Mengirim…";
+  showSlowOverlay();
 
-  if (CONFIG.gateUrl) {
-    btn.disabled = true;
-    btn.textContent = "Mengirim…";
-    // 只写留痕：no-cors 读不到响应，失败也不阻塞问卷结果
-    fetch(CONFIG.gateUrl, {
-      method: "POST",
-      mode: "no-cors",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify(buildProbe(data, "submit"))
-    }).then(finish).catch(finish);
+  let res = { ok: false };
+  try {
+    if (!CONFIG.gateUrl) {
+      res = { ok: false, mode: "preview" };
+    } else {
+      const fp = await Promise.race([
+        (fpPrefetch || (fpPrefetch = getFp())),
+        wait(600).then(function () { return null; })
+      ]);
+      const payload = buildProbe(data, "submit", fp);
+      res = (CONFIG.gateMode === "worker")
+        ? await postGate(payload)
+        : await jsonpDecide(payload);
+    }
+  } catch (err) {
+    res = { ok: false };
+  }
+
+  const elapsed = Date.now() - started;
+  if (elapsed < minDelay) await wait(minDelay - elapsed);
+
+  hideOverlay();
+  btn.disabled = false;
+  btn.textContent = "Kirim Kuesioner";
+  try { localStorage.removeItem(DRAFT_KEY); } catch (err) {}
+
+  // 分支互斥：allow 才给 WhatsApp 按钮；deny/异常一律走「我们会联系您」
+  if (res && res.ok && res.wa) {
+    lastWa = String(res.wa).replace(/[^0-9]/g, "");
+    renderResult(data, true);
   } else {
-    finish();
+    lastWa = "";
+    renderResult(data, false);
   }
 });
 
@@ -985,6 +1013,7 @@ document.getElementById("btnDownload").addEventListener("click", function () {
 });
 
 document.getElementById("btnEdit").addEventListener("click", function () {
+  lastWa = "";
   resultEl.style.display = "none";
   form.style.display = "";
   document.body.classList.remove("is-done");
@@ -1385,6 +1414,15 @@ function wait(ms) {
 
 async function decideAndJump() {
   if (jumpLock) return;
+
+  // 提交时已判定：正常客户直接用下发的账号，不再二次判定
+  if (lastWa) {
+    const text = summaryOrEmpty();
+    const url = "https://wa.me/" + lastWa + (text ? "?text=" + encodeURIComponent(text) : "");
+    const w = window.open(url, "_blank");
+    if (!w) location.href = url;
+    return;
+  }
 
   // required 模式下才校验勾选；默认 notice_only 不拦截
   if (CONFIG.consentMode === "required") {
