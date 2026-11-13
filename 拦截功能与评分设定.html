@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>拦截功能板块与评分设定 — GARUDA QUANTUM 4D</title>
+<style>
+  :root{
+    --navy:#0B2C4D; --navy-2:#123A63;
+    --gold:#B08D3F; --gold-d:#8A6B23; --gold-soft:#F4E6C2;
+    --bg:#F7F5F0; --surface:#FFFFFF; --surface-2:#F1F5F9;
+    --text:#1F2937; --text-2:#475569; --text-3:#64748B; --text-4:#94A3B8;
+    --border:#E2E8F0; --border-2:#CBD5E1;
+    --allow:#1F8669; --allow-bg:#EAF4F0;
+    --deny:#C13B3B; --deny-bg:#FBF0F0;
+    --warn:#B7791F; --warn-bg:#FBF3E2;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+    font-size:14px;line-height:1.7;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 24px 80px;}
+
+  /* 页头 */
+  header{background:var(--navy);color:#fff;padding:38px 0 34px;margin-bottom:34px;}
+  .head-in{max-width:1080px;margin:0 auto;padding:0 24px;}
+  .kicker{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold-soft);font-weight:700;}
+  h1{font-family:Georgia,"Times New Roman",serif;font-size:30px;line-height:1.28;margin:12px 0 0;font-weight:400;}
+  h1 em{font-style:normal;color:var(--gold-soft);}
+  .lead{font-size:13.5px;color:#C7D6E5;margin:12px 0 0;max-width:720px;line-height:1.75;}
+  .meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:20px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8FA9C2;}
+  .meta b{color:#fff;font-weight:700;}
+
+  /* 目录 */
+  .toc{display:flex;flex-wrap:wrap;gap:8px;margin:-14px 0 30px;}
+  .toc a{
+    display:inline-block;padding:7px 13px;border:1px solid var(--border-2);border-radius:999px;
+    background:#fff;color:var(--text-2);text-decoration:none;font-size:12px;
+  }
+  .toc a:hover{border-color:var(--gold);color:var(--gold-d);}
+
+  h2{font-family:Georgia,"Times New Roman",serif;font-size:21px;font-weight:400;margin:44px 0 6px;color:var(--navy);}
+  h2 .num{font-family:"Segoe UI",Arial,sans-serif;font-size:11px;letter-spacing:.18em;color:var(--gold);font-weight:700;display:block;margin-bottom:6px;}
+  .sub{color:var(--text-3);font-size:12.5px;margin:0 0 18px;}
+
+  /* 流程 */
+  .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 6px;}
+  .flow .step{
+    background:#fff;border:1px solid var(--border);
+    border-radius:var(--radius);padding:16px 16px 15px;position:relative;
+  }
+  .flow .step b{display:block;font-size:12.5px;color:var(--navy);margin-bottom:4px;}
+  .flow .step span{font-size:11.5px;color:var(--text-3);line-height:1.6;display:block;}
+  .flow .step i{
+    position:absolute;top:-9px;left:12px;background:var(--gold);color:#fff;
+    font-style:normal;font-size:9.5px;font-weight:700;letter-spacing:.08em;
+    padding:1px 7px;border-radius:3px;
+  }
+  .flow .arrow{display:none;}
+  @media (max-width:760px){.flow{grid-template-columns:1fr 1fr;}}
+
+  /* 板块卡片 */
+  .mod{
+    background:#fff;border:1px solid var(--border);border-radius:var(--radius);
+    padding:20px 22px;margin-bottom:14px;
+  }
+  .mod-h{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:4px;}
+  .mod-h .code{
+    font-size:10px;font-weight:700;letter-spacing:.1em;color:#fff;background:var(--navy);
+    padding:2px 7px;border-radius:3px;
+  }
+  .mod-h h3{margin:0;font-size:15.5px;color:var(--navy);font-weight:700;}
+  .mod-h .where{font-size:11px;color:var(--text-4);letter-spacing:.04em;}
+  .mod p{margin:8px 0 0;font-size:13px;color:var(--text-2);}
+  .mod ul{margin:10px 0 0;padding-left:18px;font-size:12.5px;color:var(--text-2);}
+  .mod li{margin:4px 0;}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+  .chip{
+    font-size:11px;padding:3px 9px;border-radius:999px;background:var(--surface-2);
+    color:var(--text-2);border:1px solid var(--border);
+  }
+  .chip.gold{background:var(--gold-soft);border-color:#E3CFA0;color:var(--gold-d);}
+
+  /* 表格 */
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;font-size:12.5px;}
+  thead th{
+    background:var(--surface-2);color:var(--text-2);text-align:left;font-weight:700;
+    font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+    padding:10px 12px;border-bottom:1px solid var(--border);white-space:nowrap;
+  }
+  tbody td{padding:9px 12px;border-bottom:1px solid #EEF2F7;vertical-align:top;color:var(--text-2);}
+  tbody tr:last-child td{border-bottom:0;}
+  tbody tr:nth-child(even){background:#FCFDFE;}
+  td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  thead th.num{text-align:right;}
+  td.k{color:var(--text);font-weight:600;}
+  .tbl-note{font-size:11.5px;color:var(--text-4);margin:8px 0 0;}
+
+  .tag{display:inline-block;font-size:10.5px;font-weight:700;padding:1px 7px;border-radius:3px;letter-spacing:.04em;}
+  .tag.d{background:var(--deny-bg);color:var(--deny);}
+  .tag.w{background:var(--warn-bg);color:var(--warn);}
+  .tag.a{background:var(--allow-bg);color:var(--allow);}
+
+  /* 阈值卡 */
+  .thresholds{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin-top:16px;}
+  .th{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;}
+  .th .lab{font-size:11px;color:var(--text-4);letter-spacing:.08em;text-transform:uppercase;}
+  .th .val{font-family:Georgia,serif;font-size:27px;color:var(--navy);margin:4px 0 2px;}
+  .th .val small{font-size:12px;color:var(--text-3);font-family:inherit;}
+  .th .act{font-size:11.5px;color:var(--text-3);}
+
+  /* 处置矩阵 */
+  .matrix{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;margin-top:16px;}
+  .mx{border-radius:var(--radius);padding:16px 18px;border:1px solid;}
+  .mx h4{margin:0 0 6px;font-size:13px;letter-spacing:.04em;}
+  .mx p{margin:0;font-size:12px;line-height:1.7;}
+  .mx.a{background:var(--allow-bg);border-color:#C9E4D9;color:#14624C;}
+  .mx.w{background:var(--warn-bg);border-color:#EAD9B4;color:#7A5312;}
+  .mx.d{background:var(--deny-bg);border-color:#EBC9C9;color:#8C2B2B;}
+
+  .callout{
+    border-left:3px solid var(--gold);background:#fff;border-radius:0 var(--radius) var(--radius) 0;
+    padding:14px 18px;margin:18px 0;font-size:12.5px;color:var(--text-2);
+  }
+  .callout b{color:var(--navy);}
+  .callout.red{border-left-color:var(--deny);}
+
+  footer{margin-top:52px;padding-top:18px;border-top:1px solid var(--border);font-size:11px;color:var(--text-4);}
+
+  @media print{
+    body{background:#fff;}
+    header{background:#fff;color:#000;border-bottom:2px solid var(--navy);}
+    .kicker,.lead,.meta{color:#333;}
+    .toc{display:none;}
+    .mod,table,.th,.mx{break-inside:avoid;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-in">
+    <div class="kicker">GARUDA QUANTUM 4D · Internal Review</div>
+    <h1>拦截功能板块与<em>评分设定</em></h1>
+    <p class="lead">
+      落地页 → WhatsApp 进线链路的拦截机制说明。用于确认「拦截由哪几个板块组成」以及「每个板块按什么分数放行或拦截」。
+      所有判定在服务端完成，前端只负责采集信号与表现结果。
+    </p>
+    <div class="meta">
+      <span>版本 <b>v1.0</b></span>
+      <span>更新 <b>2026-11-13</b></span>
+      <span>口径 <b>精准单客 · 不做家庭豁免</b></span>
+      <span>状态 <b>待确认</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <a href="#flow">01 链路总览</a>
+    <a href="#mods">02 板块明细</a>
+    <a href="#hard">03 硬拒项</a>
+    <a href="#score">04 评分权重</a>
+    <a href="#thr">05 阈值与动作</a>
+    <a href="#multi">06 多号阈值</a>
+    <a href="#matrix">07 处置矩阵</a>
+    <a href="#open">08 待确认</a>
+  </nav>
+
+  <h2 id="flow"><span class="num">01</span>拦截链路总览</h2>
+  <p class="sub">六个板块串行，前两个负责「采集与入口」，中间两个负责「判定」，后两个负责「处置与运营」。</p>
+
+  <div class="flow">
+    <div class="step"><i>M1</i><b>信号采集</b><span>设备ID、指纹哈希、自动化信号、IP/ASN、行为轨迹</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><i>M2</i><b>入口校验</b><span>nonce、来源白名单、边缘限流、频率控制</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><i>M3</i><b>名单比对</b><span>共享黑名单只读 + 本地名单 + 跨号关联</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><i>M4</i><b>三层判定</b><span>硬拒 → 评分 → 挑战；短窗聚集整批封禁</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><i>M5</i><b>处置表现</b><span>软拦 / 硬拦 / 证据落表 / 自动入本地名单</span></div>
+    <div class="arrow">→</div>
+    <div class="step"><i>M6</i><b>运营闭环</b><span>管理端改号、评分分布、告警、90 天归档</span></div>
+  </div>
+
+  <div class="callout">
+    <b>关键原则：</b>账号只在判定通过时下发；拒绝回执不含账号、不含原因；前端只显示统一的印尼语「网络繁忙」话术，规则、阈值、名单一律不下发。
+  </div>
+
+  <h2 id="mods"><span class="num">02</span>板块明细</h2>
+  <p class="sub">每个板块的职责、关键参数与失败策略。</p>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M1</span><h3>信号采集</h3><span class="where">index.html · collectSignals / buildProbe</span></div>
+    <p>在浏览器本地计算，只上报哈希与布尔值，不上报原始指纹、不发任何外部请求。</p>
+    <ul>
+      <li>设备标识：localStorage UUID（分身应用会隔离存储，故只作辅证）</li>
+      <li>指纹哈希：UA、语言、屏幕、时区、CPU/内存、平台 + canvas + WebGL → FNV-1a 32bit</li>
+      <li>自动化痕迹：<code>navigator.webdriver</code>、HeadlessChrome UA、<code>window.chrome</code> 缺失、plugins=0、<code>eval.toString().length</code>、软件渲染</li>
+      <li>一致性矛盾：Intl 时区 vs UTC offset、language vs languages[0]、屏幕异常值</li>
+      <li>行为：指针/触摸轨迹次数、点击前 2 秒是否有移动、填表耗时、页面停留时长、<code>isTrusted</code></li>
+      <li>网络：公网 IP、ASN、归属组织、国家（来自自有 Worker）</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">零第三方依赖</span>
+      <span class="chip">异步取 IP，不阻塞</span>
+      <span class="chip">失败即忽略</span>
+      <span class="chip">in-app 浏览器白名单</span>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M2</span><h3>入口校验</h3><span class="where">Cloudflare Worker · /api/gate</span></div>
+    <p>防止绕过页面直接调用判定端点，并挡住洪泛。</p>
+    <ul>
+      <li>一次性 nonce：页面加载时签发，HMAC 签名、TTL 10 分钟、绑定 device_id，重放无效</li>
+      <li>来源校验：Origin / Referer 白名单（Apps Script 拿不到请求头，所以放在边缘）</li>
+      <li>边缘限流：按 IP 10 次/分、/24 网段 60 次/分、ASN 600 次/分；超限返回同一张「繁忙」页</li>
+      <li>判定通道：同源 <code>POST /api/gate</code> → Worker 转发 Apps Script，浏览器不再直连后端</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">解决「端点当预言机」</span>
+      <span class="chip">保护 Apps Script 配额</span>
+      <span class="chip">隐藏后端地址</span>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M3</span><h3>名单比对</h3><span class="where">3_Risk.gs · loadBlacklist / linkedBlackHit</span></div>
+    <p>号码直查 + 设备/指纹跨号反查，覆盖「换号重进」。</p>
+    <ul>
+      <li>共享黑名单：只读签到系统的 <code>Daftar Hitam</code>，绝不写入</li>
+      <li>本地名单：本系统自建，硬拒时自动写入；读取时与共享表合并、本地优先</li>
+      <li>状态口径：<code>Studio / Rekan</code> = 黑，<code>Pantau</code> = 观察，<code>Aman</code> = 白名单豁免</li>
+      <li>跨号关联：新号码与历史黑名单号码共用设备 / 指纹 / IP 即命中</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">共享表只读</span>
+      <span class="chip">本地表可写</span>
+      <span class="chip">空状态按黑处理</span>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M4</span><h3>三层判定</h3><span class="where">3_Risk.gs · scoreVisit / markWindows</span></div>
+    <p>先看硬拒项，再算评分，最后按分数决定放行、挑战或拒绝。</p>
+    <ul>
+      <li>第一层 硬拒：命中任一项直接拒绝，不进入评分</li>
+      <li>第二层 评分：0–100 加权累加，封顶 100</li>
+      <li>第三层 挑战：评分落在中档时要求完成轻量 PoW，未完成按拒绝处理</li>
+      <li>短窗聚集：10 分钟内同设备/指纹/IP 出现 ≥3 个不同号码 → 整批封禁（CacheService，TTL=窗口剩余）</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">判定在服务端</span>
+      <span class="chip">阈值不下发</span>
+      <span class="chip">计数走缓存</span>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M5</span><h3>处置表现</h3><span class="where">2_Gate.gs · decide / writeBlockLog</span></div>
+    <p>让被拦者无法判断自己为什么被拦，也让运营能事后复核。</p>
+    <ul>
+      <li>软拦（默认）：转圈 2.8–4.8 秒随机，显示统一印尼语繁忙话术，可重试</li>
+      <li>硬拦（管理端可切）：同一话术 + CTA 置灰，完全禁止跳转</li>
+      <li>延迟对齐：放行与拒绝施加相近延迟，防计时侧信道</li>
+      <li>证据落表：时间、号码、命中类型、关联号码、评分、命中项、模式、原因</li>
+      <li>自动入本地名单：硬拒即写入，状态 <code>Studio</code>，备注写命中原因</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">统一话术</span>
+      <span class="chip">拒绝不含账号/原因</span>
+      <span class="chip">评分入库</span>
+    </div>
+  </div>
+
+  <div class="mod">
+    <div class="mod-h"><span class="code">M6</span><h3>运营闭环</h3><span class="where">4_Admin.gs · 管理端</span></div>
+    <p>改号即时生效，异常可被发现。</p>
+    <ul>
+      <li>改号：管理页改 <code>WA_NUMBER</code>，下一次请求立即生效，无需改 HTML、无需重新部署</li>
+      <li>切换软/硬拦、告知模式</li>
+      <li>评分分布、按原因分布、Top ASN、Top 设备、最近拦截</li>
+      <li>告警：10 分钟内拦截 >30 次或 ASN 集中度异常时推送</li>
+      <li>归档：访问日志 90 天后移入归档表</li>
+    </ul>
+    <div class="chips">
+      <span class="chip gold">改号即时生效</span>
+      <span class="chip">配额熔断</span>
+      <span class="chip">90 天归档</span>
+    </div>
+  </div>
+
+  <h2 id="hard"><span class="num">03</span>第一层：硬拒项</h2>
+  <p class="sub">命中任一项直接拒绝，不进入评分。已排除 in-app 浏览器（FBAN / Instagram / TikTok / WhatsApp WebView）。</p>
+
+  <table>
+    <thead><tr><th style="width:32%">硬拒项</th><th>判定依据</th><th style="width:18%">误伤风险</th></tr></thead>
+    <tbody>
+      <tr><td class="k">WebDriver 标记</td><td><code>navigator.webdriver === true</code> 且 UA 不在 in-app 白名单</td><td>极低</td></tr>
+      <tr><td class="k">无头浏览器 UA</td><td>UA 命中 HeadlessChrome / PhantomJS / Lightpanda</td><td>极低</td></tr>
+      <tr><td class="k">无窗口尺寸</td><td><code>outerWidth === 0</code> 或 <code>outerHeight === 0</code></td><td>低</td></tr>
+      <tr><td class="k">蜜罐字段被填</td><td>隐藏输入框 <code>website</code> 有值</td><td>极低</td></tr>
+      <tr><td class="k">合成点击</td><td>点击事件 <code>isTrusted === false</code></td><td>极低</td></tr>
+      <tr><td class="k">号码号段非法</td><td>非 <code>62</code> + 印尼有效移动号段，或长度不符</td><td>低（需维护号段表）</td></tr>
+      <tr><td class="k">同设备多号</td><td>同 <code>device_id</code> 90 天内 ≥2 个不同号码</td><td>低（分身可绕过）</td></tr>
+      <tr><td class="k">同指纹同 IP 多号</td><td>同 fingerprint + 同 IP 键 24h 内 ≥2 个不同号码</td><td>中（同 WiFi 会被拦，符合口径）</td></tr>
+      <tr><td class="k">同点击 ID 多号</td><td>同 fbclid / gclid / utm_content 24h 内 ≥2 个不同号码</td><td>低</td></tr>
+    </tbody>
+  </table>
+  <p class="tbl-note">说明：in-app 浏览器普遍缺 <code>window.chrome</code>、plugins 为 0，因此这类信号只进评分，不做硬拒。</p>
+
+  <h2 id="score"><span class="num">04</span>第二层：评分权重</h2>
+  <p class="sub">0–100 累加后封顶。单项分值代表「该信号单独出现时的可疑程度」，组合后过线即拦。</p>
+
+  <table>
+    <thead><tr><th style="width:36%">评分项</th><th class="num" style="width:12%">权重</th><th>触发条件</th></tr></thead>
+    <tbody>
+      <tr><td class="k">黑名单跨号关联</td><td class="num">60</td><td>新号码与黑名单号码共用设备 / 指纹 / IP</td></tr>
+      <tr><td class="k">同 IP 键多号</td><td class="num">40</td><td>同一 IP 键 24h 内 ≥2 个不同号码（已拍板）</td></tr>
+      <tr><td class="k">国家与时区不一致</td><td class="num">30</td><td>如 IP 国家 ID 但时区为 Asia/Shanghai</td></tr>
+      <tr><td class="k">机房 ASN / 组织</td><td class="num">25</td><td>ASN 或组织名命中机房、VPS、托管商关键词</td></tr>
+      <tr><td class="k">填表耗时 &lt;3 秒</td><td class="num">25</td><td>首次输入到提交的间隔</td></tr>
+      <tr><td class="k">软件渲染</td><td class="num">25</td><td>WebGL 命中 SwiftShader / llvmpipe / Software</td></tr>
+      <tr><td class="k">同号码多设备</td><td class="num">25</td><td>同一号码 24h 内出现在 ≥3 个设备</td></tr>
+      <tr><td class="k">点击前无指针轨迹</td><td class="num">20</td><td>点击前 2 秒无 mousemove / touchmove</td></tr>
+      <tr><td class="k">页面停留 &lt;3 秒</td><td class="num">20</td><td>页面加载到点击 CTA 的间隔</td></tr>
+      <tr><td class="k">语言非 id / en</td><td class="num">15</td><td><code>navigator.language</code> 不在白名单</td></tr>
+      <tr><td class="k">屏幕为默认值</td><td class="num">15</td><td>800×600 或 1280×720</td></tr>
+      <tr><td class="k">姓名疑似乱码</td><td class="num">15</td><td>纯数字、单字符、重复字符、异常长度</td></tr>
+      <tr><td class="k">桌面端 plugins=0</td><td class="num">10</td><td>非 in-app 的桌面 UA 但插件为空</td></tr>
+      <tr><td class="k">硬件参数异常</td><td class="num">10</td><td>hardwareConcurrency ≤2 或 deviceMemory ≤1</td></tr>
+      <tr><td class="k">五题同序号</td><td class="num">10</td><td>q1–q5 全部选同一位置</td></tr>
+    </tbody>
+  </table>
+  <p class="tbl-note">权重为初始值，上线后按「拦截准确率」与「误拦申诉」调整；所有阈值仅存服务端。</p>
+
+  <h2 id="thr"><span class="num">05</span>阈值与动作</h2>
+  <p class="sub">评分落点决定三种处置之一。</p>
+
+  <div class="thresholds">
+    <div class="th">
+      <div class="lab">Deny 拒绝线</div>
+      <div class="val">≥ 60</div>
+      <div class="act">直接拒绝，写证据，入本地名单</div>
+    </div>
+    <div class="th">
+      <div class="lab">Challenge 挑战区（暂不启用）</div>
+      <div class="val">35 – 59</div>
+      <div class="act">PoW 已拍板暂不启用，该区间当前按放行；代码保留备选</div>
+    </div>
+    <div class="th">
+      <div class="lab">Allow 放行区</div>
+      <div class="val">&lt; 35</div>
+      <div class="act">下发账号，仅此时返回 wa</div>
+    </div>
+    <div class="th">
+      <div class="lab">软拦延迟</div>
+      <div class="val">2.8–4.8<small> 秒</small></div>
+      <div class="act">放行/拒绝同分布，防计时反推</div>
+    </div>
+  </div>
+
+  <h2 id="multi"><span class="num">06</span>多号阈值（一家人=工作室口径）</h2>
+  <p class="sub">不做家庭豁免；同设备、同网络多号一律按工作室处理。</p>
+
+  <table>
+    <thead><tr><th style="width:34%">维度</th><th class="num" style="width:16%">阈值</th><th class="num" style="width:16%">窗口</th><th>处置</th></tr></thead>
+    <tbody>
+      <tr><td class="k">同 device_id 多号</td><td class="num">≥2 个号码</td><td class="num">90 天</td><td><span class="tag d">硬拒</span> + 入本地名单</td></tr>
+      <tr><td class="k">同 fingerprint + 同 IP 多号</td><td class="num">≥2 个号码</td><td class="num">24 小时</td><td><span class="tag d">硬拒</span></td></tr>
+      <tr><td class="k">同 fingerprint 单独多号</td><td class="num">≥4 个号码</td><td class="num">24 小时</td><td><span class="tag d">硬拒</span>（保留碰撞保护）</td></tr>
+      <tr><td class="k">同 IP 键多号</td><td class="num">≥2 个号码</td><td class="num">24 小时</td><td><span class="tag w">评分 +40</span>，叠加其他信号可拒（已拍板）</td></tr>
+      <tr><td class="k">同 IP 键短窗聚集</td><td class="num">≥3 个号码</td><td class="num">10 分钟</td><td><span class="tag d">整批封禁</span></td></tr>
+      <tr><td class="k">同号码多设备</td><td class="num">≥3 个设备</td><td class="num">24 小时</td><td><span class="tag w">评分 +25</span></td></tr>
+      <tr><td class="k">同点击 ID 多号</td><td class="num">≥2 个号码</td><td class="num">24 小时</td><td><span class="tag d">硬拒</span></td></tr>
+      <tr><td class="k">频控</td><td class="num">5 次/分钟</td><td class="num">滚动</td><td><span class="tag d">拒绝</span>（统一话术）</td></tr>
+    </tbody>
+  </table>
+  <p class="tbl-note">同 IP 键取 2（已拍板）；仍只加 40 分、不单独硬拒，避免 CGNAT 整片误伤。</p>
+
+  <h2 id="matrix"><span class="num">07</span>处置矩阵</h2>
+  <p class="sub">同一套话术，三种不同的后台行为。</p>
+
+  <div class="matrix">
+    <div class="mx a">
+      <h4>ALLOW · 放行</h4>
+      <p>下发账号，前端延迟后打开 wa.me。日志按 10% 抽样写入，降低配额压力。</p>
+    </div>
+    <div class="mx w">
+      <h4>CHALLENGE · 挑战</h4>
+      <p>前端完成轻量 PoW 后重新判定；通过则放行，失败或超时按拒绝。用户侧仍显示「网络较慢」。</p>
+    </div>
+    <div class="mx d">
+      <h4>DENY · 拒绝</h4>
+      <p>永不下发账号、永不打开 wa.me。软拦 2.8–4.8 秒后提示繁忙；硬拦则置灰 CTA。写证据 + 自动入本地名单。</p>
+    </div>
+  </div>
+
+  <div class="callout red">
+    <b>失败策略：</b>后端异常、超时、脚本加载失败一律按 <b>拒绝</b> 处理（fail-closed）。宁可少一条线索，也不让账号在不确定状态下暴露。
+  </div>
+
+  <h2 id="open"><span class="num">08</span>待确认</h2>
+  <p class="sub">这三项会影响实现方式与成本，确认后即可进入存储端开发。</p>
+
+  <table>
+    <thead><tr><th style="width:30%">项</th><th style="width:24%">建议</th><th>影响</th></tr></thead>
+    <tbody>
+      <tr><td class="k">同 IP 键阈值</td><td><b>已拍板：2</b></td><td>24h 内 ≥2 个不同号码；仅加 40 分，不单独硬拒</td></tr>
+      <tr><td class="k">是否上 PoW 挑战</td><td><b>已拍板：暂不启用</b></td><td>代码与配置保留，35–59 区间当前放行；后续按攻击强度再开</td></tr>
+      <tr><td class="k">判定是否迁到 Worker</td><td><b>已拍板：迁</b></td><td>同源 POST `/api/gate` + Origin 校验 + 边缘限流 + 共享密钥</td></tr>
+    </tbody>
+  </table>
+
+  <footer>
+    GARUDA QUANTUM 4D · 内部审阅材料 · 2026-11-13 · 评分权重与阈值均为初始值，上线后按实际拦截效果调整
+  </footer>
+
+</div>
+</body>
+</html>

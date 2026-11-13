@@ -1,0 +1,14 @@
+# GARUDA QUANTUM 4D — 边缘网关（/ip + /api/gate）
+# 部署：npx wrangler deploy
+
+name = "gq4d-gate"
+main = "ip-echo-worker.js"
+compatibility_date = "2026-11-01"
+
+# 变量（非机密）。GATE_SECRET 用 `wrangler secret put GATE_SECRET` 单独设置。
+[vars]
+# 测试期 "*"；上线前改成落地页域名，逗号分隔、含协议
+ALLOWED_ORIGINS = "*"
+GATE_URL = "https://script.google.com/macros/s/AKfycbxhvbvY0MeGy-MN3CJ8pa841gVVshIJBZRd-2BZw6jjjH2ZmQFMs8Pev-jcOVHmsJya/exec"
+
+# 不绑定 KV / D1 / R2：本 Worker 不写任何持久化

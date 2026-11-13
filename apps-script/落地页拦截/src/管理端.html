@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>落地页拦截 · 管理端</title>
+<style>
+  :root{
+    --navy:#0B2C4D; --gold:#B08D3F; --gold-d:#8A6B23;
+    --bg:#F7F5F0; --surface:#fff; --border:#E2E8F0;
+    --text:#1F2937; --muted:#64748B; --err:#C13B3B; --ok:#1F8669;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","Microsoft YaHei",Arial,sans-serif;font-size:14px;line-height:1.7;}
+  .wrap{max-width:760px;margin:0 auto;padding:28px 20px 70px;}
+  h1{font-size:20px;color:var(--navy);margin:0 0 4px;font-weight:700;}
+  .sub{color:var(--muted);font-size:12px;margin:0 0 22px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:14px;}
+  .card h2{font-size:13px;color:var(--navy);margin:0 0 12px;letter-spacing:.04em;}
+  label{display:block;font-size:11.5px;color:var(--muted);margin:10px 0 4px;letter-spacing:.04em;}
+  input[type=text],input[type=password],select{
+    width:100%;padding:9px 11px;border:1px solid var(--border);border-radius:6px;
+    font-size:13px;color:var(--text);background:#fff;outline:none;
+  }
+  input:focus,select:focus{border-color:var(--gold);}
+  button{
+    margin-top:12px;padding:9px 18px;border:0;border-radius:6px;cursor:pointer;
+    background:var(--gold);color:#fff;font-size:12.5px;font-weight:700;letter-spacing:.04em;
+  }
+  button:hover{background:var(--gold-d);}
+  button.ghost{background:#fff;color:var(--navy);border:1px solid var(--border);}
+  button.danger{background:var(--err);}
+  button.mini{margin:0;padding:4px 10px;font-size:11.5px;font-weight:600;}
+  .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .row > div{flex:1 1 180px;}
+  .msg{margin-top:10px;font-size:12px;min-height:18px;}
+  .msg.ok{color:var(--ok);}
+  .msg.err{color:var(--err);}
+  .kv{display:flex;justify-content:space-between;font-size:12.5px;padding:5px 0;border-bottom:1px solid #EEF2F7;}
+  .kv:last-child{border-bottom:0;}
+  .kv b{color:var(--navy);}
+  .stat{display:flex;gap:10px;margin-bottom:12px;}
+  .stat div{flex:1;background:#F8FAFC;border:1px solid var(--border);border-radius:8px;padding:10px 12px;}
+  .stat span{display:block;font-size:10.5px;color:var(--muted);letter-spacing:.06em;}
+  .stat b{font-size:19px;color:var(--navy);}
+  .top{font-size:12px;color:var(--muted);padding-left:18px;margin:0;}
+  .top li{margin:3px 0;}
+  .hint{font-size:11px;color:var(--muted);margin-top:8px;}
+  .warn{background:#FBF0F0;border:1px solid #EBC9C9;color:#8C2B2B;border-radius:8px;
+    padding:10px 12px;font-size:12px;margin-top:10px;}
+  .pause{background:#FBF3E2;border:1px solid #EAD9B4;color:#7A5312;border-radius:8px;
+    padding:10px 12px;font-size:12px;margin-bottom:12px;display:none;}
+  .pause.on{display:block;}
+  table.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+  table.tbl th{text-align:left;color:var(--muted);font-size:10.5px;letter-spacing:.06em;
+    text-transform:uppercase;padding:6px 8px;border-bottom:1px solid var(--border);white-space:nowrap;}
+  table.tbl td{padding:7px 8px;border-bottom:1px solid #EEF2F7;vertical-align:top;}
+  table.tbl td.reason{max-width:260px;color:var(--muted);}
+  table.tbl td.ops{white-space:nowrap;}
+  .empty{color:var(--muted);font-size:12px;padding:10px 0;}
+  .pill{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:999px;background:#F1F5F9;color:#475569;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>落地页拦截 · 管理端</h1>
+  <p class="sub">改号即时生效；所有变更写入「配置变更」审计表。</p>
+
+  <div class="pause" id="pauseBanner">⚠️ 当前处于「暂停拦截」：所有请求放行，请尽快恢复。</div>
+
+  <div class="card">
+    <h2>口令</h2>
+    <div class="row">
+      <div>
+        <label>管理口令</label>
+        <input type="password" id="pwd" placeholder="ADMIN_PWD">
+      </div>
+      <div style="flex:0 0 auto;">
+        <button id="btnLoad">载入配置</button>
+        <button class="ghost" id="btnAll">刷新全部</button>
+      </div>
+    </div>
+    <div class="msg" id="msg1"></div>
+  </div>
+
+  <div class="card">
+    <h2>当前配置</h2>
+    <div class="kv"><span>进线账号</span><b id="curWa">—</b></div>
+    <div class="kv"><span>拦截模式</span><b id="curMode">—</b></div>
+    <div class="kv"><span>告知模式</span><b id="curConsent">—</b></div>
+    <div class="kv"><span>紧急开关</span><b id="curPause">—</b></div>
+    <div class="kv"><span>版本 / 时间</span><b id="curVer">—</b></div>
+  </div>
+
+  <div class="card">
+    <h2>修改进线账号</h2>
+    <label>WhatsApp 号码（含国家码）</label>
+    <input type="text" id="wa" placeholder="628123456789">
+    <button id="btnWa">保存账号</button>
+    <button class="ghost" id="btnTest">测试打开</button>
+    <div class="msg" id="msg2"></div>
+    <p class="hint">印尼 <b>628139275234</b>、香港 <b>85291234567</b>、马来 <b>60123456789</b>；本地 <b>0813…</b> 自动转 62。保存后下一次点击生效。</p>
+  </div>
+
+  <div class="card">
+    <h2>拦截与告知</h2>
+    <div class="row">
+      <div>
+        <label>拦截模式</label>
+        <select id="mode">
+          <option value="soft">soft · 网络缓慢（推荐）</option>
+          <option value="hard">hard · 完全禁止跳转</option>
+        </select>
+      </div>
+      <div>
+        <label>告知模式</label>
+        <select id="consent">
+          <option value="notice_only">notice_only · 仅告知</option>
+          <option value="required">required · 必勾</option>
+          <option value="dual">dual · 双勾选</option>
+        </select>
+      </div>
+    </div>
+    <button id="btnMode">保存模式</button>
+    <div class="msg" id="msg3"></div>
+  </div>
+
+  <div class="card">
+    <h2>紧急开关</h2>
+    <p class="hint" style="margin-top:0;">暂停后所有请求放行并记录，用于误杀事故止损；恢复后立即按规则拦截。</p>
+    <button class="danger" id="btnPause">暂停拦截</button>
+    <button class="ghost" id="btnResume">恢复拦截</button>
+    <div class="msg" id="msg5"></div>
+  </div>
+
+  <div class="card">
+    <h2>最近拦截</h2>
+    <div id="blocks"><div class="empty">载入后显示</div></div>
+    <button class="ghost" id="btnBlocks">刷新拦截记录</button>
+    <div class="msg" id="msg6"></div>
+  </div>
+
+  <div class="card">
+    <h2>最近 500 条统计</h2>
+    <div class="stat">
+      <div><span>总数</span><b id="stTotal">—</b></div>
+      <div><span>放行</span><b id="stAllow">—</b></div>
+      <div><span>拒绝</span><b id="stDeny">—</b></div>
+    </div>
+    <ul class="top" id="stTop"></ul>
+    <button class="ghost" id="btnStats">刷新统计</button>
+    <div class="msg" id="msg4"></div>
+  </div>
+</div>
+
+<script>
+  var LAST = null;
+
+  function pwd() { return document.getElementById('pwd').value.trim(); }
+  function say(id, text, ok) {
+    var el = document.getElementById(id);
+    el.textContent = text || '';
+    el.className = 'msg ' + (ok ? 'ok' : 'err');
+  }
+
+  function applyConfig(c) {
+    LAST = c;
+    document.getElementById('curWa').textContent = c.wa || '（未设置）';
+    document.getElementById('curMode').textContent = c.mode;
+    document.getElementById('curConsent').textContent = c.consent;
+    document.getElementById('curPause').textContent = c.pause ? '已暂停' : '正常';
+    document.getElementById('curVer').textContent = c.version + ' / ' + c.time;
+    document.getElementById('wa').value = c.wa || '';
+    document.getElementById('mode').value = c.mode;
+    document.getElementById('consent').value = c.consent;
+    document.getElementById('pauseBanner').className = 'pause' + (c.pause ? ' on' : '');
+  }
+
+  function loadConfig() {
+    google.script.run
+      .withSuccessHandler(function (c) { applyConfig(c); say('msg1', '已载入', true); })
+      .withFailureHandler(function (e) { say('msg1', e.message, false); })
+      .getAdminConfig(pwd());
+  }
+
+  document.getElementById('btnLoad').onclick = loadConfig;
+
+  document.getElementById('btnAll').onclick = function () {
+    loadConfig(); loadBlocks(); loadStats();
+  };
+
+  document.getElementById('btnWa').onclick = function () {
+    var n = document.getElementById('wa').value.trim();
+    var old = LAST ? LAST.wa : '';
+    if (!/^\d{8,15}$/.test(n.replace(/[^0-9]/g, ''))) {
+      say('msg2', '号码格式不对：需含国家码，8–15 位', false); return;
+    }
+    if (!confirm('确认把进线账号从 ' + (old || '（空）') + ' 改为 ' + n + '？\n保存后立即生效。')) return;
+    google.script.run
+      .withSuccessHandler(function (r) { say('msg2', r, true); loadConfig(); })
+      .withFailureHandler(function (e) { say('msg2', e.message, false); })
+      .setWaNumber(n, pwd());
+  };
+
+  document.getElementById('btnTest').onclick = function () {
+    var n = document.getElementById('wa').value.replace(/[^0-9]/g, '');
+    if (!n) { say('msg2', '先填号码', false); return; }
+    window.open('https://wa.me/' + n + '?text=' + encodeURIComponent('Tes koneksi GARUDA QUANTUM 4D'), '_blank');
+  };
+
+  document.getElementById('btnMode').onclick = function () {
+    var m = document.getElementById('mode').value;
+    var c = document.getElementById('consent').value;
+    if (m === 'hard') {
+      var t = prompt('硬拦会完全禁止跳转。确认请输入 HARD：');
+      if (t !== 'HARD') { say('msg3', '已取消', false); return; }
+    }
+    google.script.run
+      .withSuccessHandler(function (r) { say('msg3', r, true); loadConfig(); })
+      .withFailureHandler(function (e) { say('msg3', e.message, false); })
+      .saveModes(m, c, pwd());
+  };
+
+  document.getElementById('btnPause').onclick = function () {
+    if (!confirm('确认暂停拦截？所有请求将放行并记录。')) return;
+    google.script.run
+      .withSuccessHandler(function (r) { say('msg5', r, true); loadConfig(); })
+      .withFailureHandler(function (e) { say('msg5', e.message, false); })
+      .setPauseBlock(true, pwd());
+  };
+
+  document.getElementById('btnResume').onclick = function () {
+    google.script.run
+      .withSuccessHandler(function (r) { say('msg5', r, true); loadConfig(); })
+      .withFailureHandler(function (e) { say('msg5', e.message, false); })
+      .setPauseBlock(false, pwd());
+  };
+
+  function loadBlocks() {
+    google.script.run
+      .withSuccessHandler(renderBlocks)
+      .withFailureHandler(function (e) { say('msg6', e.message, false); })
+      .getRecentBlocks(pwd(), 20);
+  }
+
+  function renderBlocks(list) {
+    var box = document.getElementById('blocks');
+    box.innerHTML = '';
+    if (!list || !list.length) {
+      box.innerHTML = '<div class="empty">暂无拦截记录</div>';
+      return;
+    }
+    var tbl = document.createElement('table');
+    tbl.className = 'tbl';
+    tbl.innerHTML = '<thead><tr><th>时间</th><th>号码</th><th>评分</th><th>原因</th><th>操作</th></tr></thead>';
+    var tb = document.createElement('tbody');
+    list.forEach(function (b) {
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + esc(b.time) + '</td>' +
+        '<td>' + esc(b.nomor || '（空）') + '</td>' +
+        '<td>' + esc(b.score) + '</td>' +
+        '<td class="reason" title="' + esc(b.reasons) + '">' + esc(b.reasons) + '</td>' +
+        '<td class="ops"></td>';
+      var ops = tr.querySelector('.ops');
+      var b1 = document.createElement('button');
+      b1.className = 'mini ghost'; b1.textContent = '误判';
+      b1.onclick = function () { mark(b.row, true); };
+      var b2 = document.createElement('button');
+      b2.className = 'mini danger'; b2.textContent = '确认';
+      b2.style.marginLeft = '6px';
+      b2.onclick = function () { mark(b.row, false); };
+      ops.appendChild(b1); ops.appendChild(b2);
+      tb.appendChild(tr);
+    });
+    tbl.appendChild(tb);
+    box.appendChild(tbl);
+  }
+
+  function mark(row, isFalsePositive) {
+    var tip = isFalsePositive
+      ? '确认这是误判？该号码将加入白名单（Aman）。'
+      : '确认拦截？该号码将加入本地黑名单（Studio）。';
+    if (!confirm(tip)) return;
+    if (isFalsePositive) {
+      google.script.run
+        .withSuccessHandler(function (r) { say('msg6', r, true); loadBlocks(); })
+        .withFailureHandler(function (e) { say('msg6', e.message, false); })
+        .markBlockFalsePositive(row, pwd());
+    } else {
+      google.script.run
+        .withSuccessHandler(function (r) { say('msg6', r, true); loadBlocks(); })
+        .withFailureHandler(function (e) { say('msg6', e.message, false); })
+        .markBlockConfirm(row, pwd());
+    }
+  }
+
+  function loadStats() {
+    google.script.run
+      .withSuccessHandler(function (s) {
+        document.getElementById('stTotal').textContent = s.total;
+        document.getElementById('stAllow').textContent = s.allow;
+        document.getElementById('stDeny').textContent = s.deny;
+        var ul = document.getElementById('stTop');
+        ul.innerHTML = '';
+        (s.top || []).forEach(function (x) {
+          var li = document.createElement('li');
+          li.textContent = x.k + ' · ' + x.n;
+          ul.appendChild(li);
+        });
+      })
+      .withFailureHandler(function (e) { say('msg4', e.message, false); })
+      .getStats(pwd());
+  }
+
+  document.getElementById('btnBlocks').onclick = loadBlocks;
+  document.getElementById('btnStats').onclick = loadStats;
+
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+</script>
+</body>
+</html>

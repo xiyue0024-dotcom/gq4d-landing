@@ -1,0 +1,425 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>待拍板功能详解 — GARUDA QUANTUM 4D</title>
+<style>
+  :root{
+    --navy:#0B2C4D; --navy-2:#123A63;
+    --gold:#B08D3F; --gold-d:#8A6B23; --gold-soft:#F4E6C2;
+    --bg:#F7F5F0; --surface:#FFFFFF; --surface-2:#F1F5F9;
+    --text:#1F2937; --text-2:#475569; --text-3:#64748B; --text-4:#94A3B8;
+    --border:#E2E8F0; --border-2:#CBD5E1;
+    --allow:#1F8669; --allow-bg:#EAF4F0;
+    --deny:#C13B3B; --deny-bg:#FBF0F0;
+    --warn:#B7791F; --warn-bg:#FBF3E2;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",Arial,sans-serif;
+    font-size:14px;line-height:1.75;-webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1000px;margin:0 auto;padding:0 24px 90px;}
+
+  header{background:var(--navy);color:#fff;padding:40px 0 36px;margin-bottom:32px;}
+  .head-in{max-width:1000px;margin:0 auto;padding:0 24px;}
+  .kicker{font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--gold-soft);font-weight:700;}
+  h1{font-family:Georgia,"Times New Roman",serif;font-size:30px;line-height:1.28;margin:12px 0 0;font-weight:400;}
+  h1 em{font-style:normal;color:var(--gold-soft);}
+  .lead{font-size:13.5px;color:#C7D6E5;margin:12px 0 0;max-width:760px;}
+  .meta{display:flex;flex-wrap:wrap;gap:18px;margin-top:20px;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#8FA9C2;}
+  .meta b{color:#fff;}
+
+  h2{font-family:Georgia,"Times New Roman",serif;font-size:22px;font-weight:400;margin:46px 0 4px;color:var(--navy);}
+  h2 .num{font-family:"Segoe UI",Arial,sans-serif;font-size:11px;letter-spacing:.18em;color:var(--gold);font-weight:700;display:block;margin-bottom:6px;}
+  .sub{color:var(--text-3);font-size:12.5px;margin:0 0 20px;}
+
+  h3{font-size:14px;color:var(--navy);margin:26px 0 8px;letter-spacing:.02em;}
+  h3 .dot{display:inline-block;width:6px;height:6px;background:var(--gold);border-radius:50%;margin-right:8px;vertical-align:2px;}
+
+  .card{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:22px 24px;margin-bottom:16px;}
+  .card p{margin:8px 0;font-size:13px;color:var(--text-2);}
+  .card ul{margin:8px 0;padding-left:20px;font-size:13px;color:var(--text-2);}
+  .card li{margin:5px 0;}
+  .card code{background:var(--surface-2);padding:1px 5px;border-radius:3px;font-size:12px;color:var(--navy-2);}
+
+  .q{font-size:16px;color:var(--navy);font-weight:700;margin:0 0 6px;}
+  .q-tag{display:inline-block;font-size:10.5px;font-weight:700;letter-spacing:.06em;padding:2px 8px;border-radius:3px;margin-right:8px;vertical-align:2px;}
+  .q-tag.g{background:var(--gold-soft);color:var(--gold-d);}
+  .q-tag.b{background:#E7EEF6;color:var(--navy-2);}
+
+  /* 举例 */
+  .examples{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:14px 0 4px;}
+  .ex{background:#FCFDFE;border:1px solid var(--border);border-left:3px solid var(--border-2);border-radius:6px;padding:14px 16px;}
+  .ex.bad{border-left-color:var(--deny);}
+  .ex.good{border-left-color:var(--allow);}
+  .ex.mid{border-left-color:var(--warn);}
+  .ex .who{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-4);font-weight:700;margin-bottom:5px;}
+  .ex .txt{font-size:12.5px;color:var(--text-2);line-height:1.72;}
+  .ex .res{font-size:12px;margin-top:8px;color:var(--text);}
+  .ex .res b{color:var(--navy);}
+
+  /* 对比 */
+  table{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;font-size:12.5px;}
+  thead th{background:var(--surface-2);color:var(--text-2);text-align:left;font-weight:700;font-size:11px;letter-spacing:.06em;text-transform:uppercase;padding:10px 12px;border-bottom:1px solid var(--border);}
+  tbody td{padding:10px 12px;border-bottom:1px solid #EEF2F7;vertical-align:top;color:var(--text-2);}
+  tbody tr:last-child td{border-bottom:0;}
+  tbody tr:nth-child(even){background:#FCFDFE;}
+  td.k{color:var(--text);font-weight:600;}
+
+  .verdict{
+    display:flex;gap:12px;align-items:flex-start;background:var(--gold-soft);
+    border:1px solid #E3CFA0;border-radius:8px;padding:13px 16px;margin:16px 0 4px;
+  }
+  .verdict .lb{font-size:10.5px;font-weight:700;letter-spacing:.1em;color:var(--gold-d);white-space:nowrap;padding-top:2px;}
+  .verdict .tx{font-size:12.5px;color:#5B4715;line-height:1.72;}
+
+  .cfg{
+    background:var(--navy);color:#D7E3EF;border-radius:8px;padding:13px 16px;margin-top:14px;
+    font-family:Consolas,"SFMono-Regular",Menlo,monospace;font-size:12px;line-height:1.8;overflow-x:auto;
+  }
+  .cfg .c{color:#8FA9C2;}
+  .cfg .k{color:var(--gold-soft);}
+
+  .cost{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px;}
+  .cost span{font-size:11.5px;background:var(--surface-2);border:1px solid var(--border);color:var(--text-2);padding:3px 9px;border-radius:999px;}
+
+  .callout{border-left:3px solid var(--gold);background:#fff;border-radius:0 var(--radius) var(--radius) 0;padding:14px 18px;margin:18px 0;font-size:12.5px;color:var(--text-2);}
+  .callout b{color:var(--navy);}
+  .callout.red{border-left-color:var(--deny);}
+
+  /* 勾选区 */
+  .decide{background:#fff;border:1px solid var(--border);border-radius:var(--radius);padding:6px 0;margin-top:14px;}
+  .decide .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center;padding:14px 20px;border-bottom:1px solid #EEF2F7;}
+  .decide .row:last-child{border-bottom:0;}
+  .decide .row .n{font-size:11px;font-weight:700;color:var(--gold-d);width:26px;flex:0 0 26px;}
+  .decide .row .t{flex:1 1 220px;font-size:13px;color:var(--text);}
+  .decide .row .o{display:flex;gap:14px;flex-wrap:wrap;}
+  .decide .row .o label{font-size:12.5px;color:var(--text-2);display:inline-flex;align-items:center;gap:5px;}
+  .decide .row .o input{width:14px;height:14px;accent-color:var(--gold);}
+
+  footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--border);font-size:11px;color:var(--text-4);}
+
+  @media print{
+    body{background:#fff;}
+    header{background:#fff;color:#000;border-bottom:2px solid var(--navy);}
+    .kicker,.lead,.meta{color:#333;}
+    .card,.ex,.decide{break-inside:avoid;}
+    .cfg{background:#F1F5F9;color:#0B2C4D;}
+    .cfg .c{color:#64748B;} .cfg .k{color:#8A6B23;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="head-in">
+    <div class="kicker">GARUDA QUANTUM 4D · Decision Brief</div>
+    <h1>待拍板功能<em>详解</em></h1>
+    <p class="lead">
+      三项需要你确认的拦截功能。每项按「它是什么 → 具体做什么 → 实际作用 → 举例 → 代价 → 建议 → 怎么切换」展开，
+      可直接用于排版或内部讨论。
+    </p>
+    <div class="meta">
+      <span>版本 <b>v1.0</b></span>
+      <span>日期 <b>2026-11-13</b></span>
+      <span>项数 <b>3 项</b></span>
+      <span>状态 <b>待拍板</b></span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 摘要 -->
+  <div class="callout" style="border-left-color:var(--allow);background:var(--allow-bg);color:#14624C;">
+    <b>拍板结果（2026-11-13）：</b>① 同 IP 键阈值 = <b>2</b>；② PoW <b>暂不启用</b>（保留备选，35–59 区间当前放行）；③ 判定 <b>迁 Worker 同源代理</b>。下文为当时的决策依据，保留供追溯。
+  </div>
+
+  <h2><span class="num">00</span>一页看懂</h2>
+  <p class="sub">三项各解决一个具体问题，互不替代。</p>
+
+  <table>
+    <thead><tr><th style="width:24%">待拍板项</th><th style="width:26%">解决什么问题</th><th style="width:22%">不做的后果</th><th>建议</th></tr></thead>
+    <tbody>
+      <tr><td class="k">① 同 IP 键阈值 3 还是 5</td><td>一条网络带几个号算「批量」</td><td>定太高，工作室每 IP 放 2 个号慢慢刷</td><td>取 3，且只计分不硬拒</td></tr>
+      <tr><td class="k">② 是否上 PoW 挑战</td><td>可疑但不确定的流量怎么处理</td><td>只能二选一：误杀真人，或放行脚本</td><td>上，18 bit，老设备降级放行</td></tr>
+      <tr><td class="k">③ 判定是否迁到 Worker</td><td>端点被直调、配额被打爆</td><td>一次脚本攻击就能让全体用户被拒</td><td>上，同源 POST 代理</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">
+    <b>为什么这三项要单独拍板：</b>它们不影响「页面长什么样」，只影响「拦得准不准、扛不扛得住」。前两项是判定精度，第三项是系统抗压能力。
+  </div>
+
+  <!-- 决策 1 -->
+  <h2><span class="num">01</span>同 IP 键阈值：3 还是 5</h2>
+  <p class="sub">24 小时内，同一网络出口出现多少个不同号码，才算「批量」。</p>
+
+  <div class="card">
+    <p class="q"><span class="q-tag g">决策 1</span>一条网线/一个代理出口，带几个号算工作室？</p>
+
+    <h3><span class="dot"></span>它是什么</h3>
+    <p>
+      「IP 键」是把 IP 收敛成网段后再比较：IPv4 取 <code>/24</code>（如 <code>203.0.113.x</code> 全算一个键），
+      IPv6 取 <code>/64</code>。这样同一个路由器、同一个代理池出口、同一个运营商 CGNAT 段，会落到同一个键上。
+      阈值就是：这个键在 24 小时内出现多少个<b>不同 WhatsApp 号码</b>，才触发「同网络批量」信号。
+    </p>
+
+    <h3><span class="dot"></span>具体做什么</h3>
+    <ul>
+      <li>每次请求把 <code>IP 键 + 号码 + 时间</code> 记入缓存计数（不读表，毫秒级）。</li>
+      <li>24 小时窗口内，该键的不同号码数达到阈值 → 当前请求加 <b>40 分</b>。</li>
+      <li>10 分钟内达到 3 个不同号码 → 触发<b>短窗聚集</b>，整批封禁（这是另一条规则，与本题无关）。</li>
+      <li>该分数<b>不单独构成拒绝</b>，需叠加机房 ASN、时区异常、秒填等信号才越过 60 分线。</li>
+    </ul>
+
+    <h3><span class="dot"></span>实际作用</h3>
+    <p>
+      这是抓「一条网络批量进线」的第一道网。工作室常见做法是一条家宽 + 多张卡 + 多开分身，
+      号码不同、设备指纹可能被改，但出口 IP 往往懒得换。阈值越低，越早发现；但公共网络里的真实客户也会被算进去。
+    </p>
+
+    <div class="examples">
+      <div class="ex bad">
+        <div class="who">场景 A · 工作室</div>
+        <div class="txt">一条家宽，3 个 WhatsApp 号，上午 10 点各点一次进线。</div>
+        <div class="res">阈值 <b>3</b> → 第 3 个号加 40 分，若同时是机房/时区异常 → 拒。<br>阈值 <b>5</b> → 三个全部放行。</div>
+      </div>
+      <div class="ex mid">
+        <div class="who">场景 B · 公共 WiFi</div>
+        <div class="txt">雅加达一家咖啡馆，一天内有 4 位顾客看到广告并点击。</div>
+        <div class="res">阈值 <b>3</b> → 第 3、4 位各加 40 分；若他们手机正常，分数不到 60，仍放行。<br>阈值 <b>5</b> → 无人加分。</div>
+      </div>
+      <div class="ex good">
+        <div class="who">场景 C · CGNAT</div>
+        <div class="txt">印尼移动运营商大量用户共享同一出口段，一个 /24 可能有几十个真实用户。</div>
+        <div class="res">阈值 <b>3</b> 会让这个段长期处于 +40 状态；因此<b>必须</b>保持「只计分、不硬拒」，否则整片误杀。</div>
+      </div>
+    </div>
+
+    <h3><span class="dot"></span>代价与风险</h3>
+    <div class="cost">
+      <span>取 3：公共网络误伤概率上升</span>
+      <span>取 5：工作室每 IP 放 2 个号即可绕过</span>
+      <span>CGNAT 下必须只计分不硬拒</span>
+    </div>
+
+    <h3><span class="dot"></span>建议</h3>
+    <div class="verdict">
+      <div class="lb">建议</div>
+      <div class="tx">
+        取 <b>3</b>，且保持「只加 40 分、不单独硬拒」。这样既能在工作室出现的早期把它推到 60 分线附近，
+        又不会因为 CGNAT 或咖啡馆 WiFi 直接封掉真实客户。若上线后发现工作室改用「每 IP 2 个号」，
+        再把阈值降到 2，或对「同 IP + 同设备型号」组合改为硬拒。
+      </div>
+    </div>
+
+    <div class="cfg">
+      <span class="c">// 3_Risk.gs · CFG.RISK</span><br>
+      <span class="k">IP_MULTI_24H</span>: 3,          <span class="c">// 24h 内同 IP 键不同号码数阈值</span><br>
+      <span class="k">IP_MULTI_SCORE</span>: 40,        <span class="c">// 达到阈值加多少分</span><br>
+      <span class="k">IP_MULTI_HARD_DENY</span>: false   <span class="c">// 是否单独硬拒（建议 false，防 CGNAT 误杀）</span>
+    </div>
+  </div>
+
+  <!-- 决策 2 -->
+  <h2><span class="num">02</span>是否上 PoW 挑战</h2>
+  <p class="sub">评分 35–59 的「可疑但不确定」流量，给一次自证机会，而不是直接判死。</p>
+
+  <div class="card">
+    <p class="q"><span class="q-tag g">决策 2</span>拿不准的请求，是放还是杀？PoW 提供第三条路。</p>
+
+    <h3><span class="dot"></span>它是什么</h3>
+    <p>
+      PoW（Proof of Work，工作量证明）是让浏览器算一道很小的数学题：找一个随机数，使
+      <code>SHA-256(随机数 + 挑战串)</code> 的结果前若干位为 0。难度 18 bit 意味着平均要算约 26 万次，
+      手机大约 100–300 毫秒，人几乎感觉不到；但脚本要批量请求，就得为每一条付出同样的 CPU 时间。
+    </p>
+
+    <h3><span class="dot"></span>具体做什么</h3>
+    <ul>
+      <li>评分落在 <b>35–59</b>：不直接拒，返回一个挑战串。</li>
+      <li>浏览器用 Web Crypto 计算，解出后带着答案重新请求。</li>
+      <li>服务端验证答案：正确 → 放行；错误或超时（8 秒）→ 拒绝。</li>
+      <li>挑战串一次性、绑定 device_id、TTL 2 分钟，不能复用。</li>
+      <li>老设备不支持 <code>crypto.subtle</code> 时按配置降级（建议降级放行，不卡死真实用户）。</li>
+    </ul>
+
+    <h3><span class="dot"></span>实际作用</h3>
+    <p>
+      它把「判定」从二选一变成三选一：确定安全 → 放行；确定恶意 → 拒绝；拿不准 → 让对方付一点成本。
+      对真人几乎无感，对脚本农场是实打实的成本上升，而且每次挑战都不同，无法预计算或缓存复用。
+    </p>
+
+    <div class="examples">
+      <div class="ex good">
+        <div class="who">场景 A · 真实客户（低端机 + 内置浏览器）</div>
+        <div class="txt">2019 年安卓机，从 Instagram 内置浏览器打开。WebView 天生没有 <code>window.chrome</code>、plugins 为 0，评分 40。</div>
+        <div class="res">没有 PoW：要么误杀（阈值降到 35），要么放行（阈值升到 60）。<br>有 PoW：<b>200ms 解出 → 放行</b>，客户无感。</div>
+      </div>
+      <div class="ex bad">
+        <div class="who">场景 B · 脚本直调</div>
+        <div class="txt">Python 脚本用 requests 直接请求判定端点，没有浏览器环境，无法执行 JS。</div>
+        <div class="res">有 PoW：<b>无法计算 → 拒绝</b>。<br>没有 PoW：只要伪造字段像样，就可能拿到账号。</div>
+      </div>
+      <div class="ex mid">
+        <div class="who">场景 C · 批量开页</div>
+        <div class="txt">工作室用 Puppeteer 同时开 200 个页面，每个都要解一次 PoW。</div>
+        <div class="res">单条多花 200ms，200 条多花 40 秒 CPU；并发一高就拖慢，且更容易被行为信号抓到。</div>
+      </div>
+    </div>
+
+    <h3><span class="dot"></span>代价与风险</h3>
+    <div class="cost">
+      <span>前端多约 40 行代码</span>
+      <span>极老设备可能不支持 Web Crypto</span>
+      <span>真人多等 100–300ms</span>
+      <span>挑战逻辑本身要防重放</span>
+    </div>
+
+    <h3><span class="dot"></span>建议</h3>
+    <div class="verdict">
+      <div class="lb">建议</div>
+      <div class="tx">
+        <b>上</b>。难度取 18 bit（手机约 100–300ms），挑战区间 35–59，超时 8 秒。
+        老设备不支持时<b>降级放行</b>而不是拒绝——这类设备占比很低，但误杀真实客户的代价比放过一个脚本更高。
+      </div>
+    </div>
+
+    <div class="cfg">
+      <span class="c">// 3_Risk.gs · CFG.CHALLENGE</span><br>
+      <span class="k">ENABLED</span>: true,        <span class="c">// 是否启用挑战</span><br>
+      <span class="k">MIN_SCORE</span>: 35,        <span class="c">// 进入挑战的最低分</span><br>
+      <span class="k">MAX_SCORE</span>: 59,        <span class="c">// 超过则直接拒绝</span><br>
+      <span class="k">DIFFICULTY</span>: 18,       <span class="c">// 前导 0 位数，越大越慢</span><br>
+      <span class="k">TIMEOUT_MS</span>: 8000,     <span class="c">// 超时按拒绝</span><br>
+      <span class="k">UNSUPPORTED</span>: 'allow'   <span class="c">// 不支持 Web Crypto 时：allow | deny</span>
+    </div>
+  </div>
+
+  <!-- 决策 3 -->
+  <h2><span class="num">03</span>判定是否迁到 Cloudflare Worker</h2>
+  <p class="sub">从「浏览器直连 Apps Script」改为「浏览器 → 自家边缘 → Apps Script」。</p>
+
+  <div class="card">
+    <p class="q"><span class="q-tag b">决策 3</span>现在的判定端点，任何人都能直接调用。</p>
+
+    <h3><span class="dot"></span>它是什么</h3>
+    <p>
+      现在浏览器用 JSONP 直接请求 Apps Script 的 <code>/exec</code>。问题是：Apps Script 的
+      <code>doGet(e)</code> 拿不到请求头，<b>无法验证请求是不是来自你的页面</b>，也没有原生限流。
+      迁移后，浏览器只请求自家域名 <code>POST /api/gate</code>，由 Cloudflare Worker 做来源校验、限流、
+      挑战校验，再带共享密钥转发给 Apps Script。
+    </p>
+
+    <h3><span class="dot"></span>具体做什么</h3>
+    <ul>
+      <li><b>来源校验</b>：Worker 读 <code>Origin / Referer</code>，不是你的域名直接 403。</li>
+      <li><b>边缘限流</b>：按 IP 10 次/分、/24 网段 60 次/分、ASN 600 次/分；超限返回同一张「繁忙」页。</li>
+      <li><b>同源 POST</b>：不再需要 JSONP，前端 <code>fetch</code> 直接读 JSON，代码更短。</li>
+      <li><b>共享密钥</b>：Worker → Apps Script 带一个密钥，后端只接受来自 Worker 的判定请求。</li>
+      <li><b>黑名单快照</b>：Worker 缓存一份只读名单（每分钟刷新），常见请求不必回源。</li>
+      <li><b>隐藏后端</b>：Apps Script URL 不再出现在 HTML 里。</li>
+    </ul>
+
+    <h3><span class="dot"></span>实际作用</h3>
+    <p>
+      这是「能不能扛住一次攻击」的分水岭。前面所有判定都跑在 Apps Script 上，而消费者账号每天只有约
+      90 分钟执行时长；一次每秒 50 次的脚本攻击，几分钟就能把它打爆，之后所有真实用户都会因为
+      fail-closed 被拒——攻击者不需要骗过判定，只要让你瘫痪就够了。
+    </p>
+
+    <div class="examples">
+      <div class="ex bad">
+        <div class="who">场景 A · 端点被刷</div>
+        <div class="txt">工作室直接 GET <code>/exec?d={...}&cb=x</code>，每秒 50 次。</div>
+        <div class="res">现状：几分钟打爆日配额 → 全体 fail-closed，真实客户全部被拒。<br>迁移后：49/50 在边缘被 429 挡掉，只有 1 次进后端。</div>
+      </div>
+      <div class="ex mid">
+        <div class="who">场景 B · URL 被贴到爬虫池</div>
+        <div class="txt">竞争对手把你的 <code>/exec</code> 地址丢进轮询池，持续低频调用。</div>
+        <div class="res">现状：无法区分来源。<br>迁移后：Origin 不是你的域名 → <b>直接 403</b>。</div>
+      </div>
+      <div class="ex good">
+        <div class="who">场景 C · 真实客户网络慢</div>
+        <div class="txt">印尼 4G 用户，JSONP 往返约 700ms，加软拦 3.5s，共 4.2s 才跳转。</div>
+        <div class="res">迁移后边缘就近响应约 150ms，总计 3.65s；且延迟可下调，体感更顺。</div>
+      </div>
+    </div>
+
+    <h3><span class="dot"></span>代价与风险</h3>
+    <div class="cost">
+      <span>多一个 Worker 路由（已有 Worker，只需加路径）</span>
+      <span>需要一把共享密钥</span>
+      <span>排障多一跳</span>
+      <span>前端要从 JSONP 改 fetch</span>
+    </div>
+
+    <h3><span class="dot"></span>建议</h3>
+    <div class="verdict">
+      <div class="lb">建议</div>
+      <div class="tx">
+        <b>上</b>。不加的话，前面所有判定都可能被「打爆配额」一招废掉；而且这是唯一能真正验证请求来源的位置。
+        工作量不大：Worker 已经有 IP 回显路由，加一个 <code>/api/gate</code> 即可。
+      </div>
+    </div>
+
+    <div class="cfg">
+      <span class="c">// 前端 CONFIG</span><br>
+      <span class="k">gateUrl</span>: 'https://你的域名/api/gate'   <span class="c">// 同源，不再是 script.google.com</span><br><br>
+      <span class="c">// Worker · wrangler.toml</span><br>
+      <span class="k">GATE_ORIGIN</span>: 'https://你的落地页域名'<br>
+      <span class="k">RATE_IP_PER_MIN</span>: 10, <span class="k">RATE_SUBNET_PER_MIN</span>: 60, <span class="k">RATE_ASN_PER_MIN</span>: 600
+    </div>
+  </div>
+
+  <!-- 勾选区 -->
+  <h2><span class="num">04</span>拍板区</h2>
+  <p class="sub">勾选后回传即可，我按选择一次写进后端，避免返工。</p>
+
+  <div class="decide">
+    <div class="row">
+      <div class="n">01</div>
+      <div class="t">同 IP 键阈值（24 小时内不同号码数）</div>
+      <div class="o">
+        <label><input type="radio" name="d1"> 3（建议）</label>
+        <label><input type="radio" name="d1"> 5</label>
+        <label><input type="radio" name="d1" checked> 2（最严·已拍板）</label>
+      </div>
+    </div>
+    <div class="row">
+      <div class="n">02</div>
+      <div class="t">是否启用 PoW 挑战（35–59 分区间）</div>
+      <div class="o">
+        <label><input type="radio" name="d2"> 启用，18 bit（建议）</label>
+        <label><input type="radio" name="d2"> 启用，20 bit（更严）</label>
+        <label><input type="radio" name="d2" checked> 不启用（已拍板）</label>
+      </div>
+    </div>
+    <div class="row">
+      <div class="n">03</div>
+      <div class="t">判定是否迁到 Worker 同源代理</div>
+      <div class="o">
+        <label><input type="radio" name="d3" checked> 迁（已拍板）</label>
+        <label><input type="radio" name="d3"> 暂不迁，先上边缘限流</label>
+        <label><input type="radio" name="d3"> 不迁</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="callout red">
+    <b>不拍板的默认后果：</b>若三项都保持现状，系统仍能拦已知黑名单与短窗聚集，但会被「单次爬虫 + 端点直刷」打穿；
+    且一旦配额被打爆，正常客户也会被一起拒掉。
+  </div>
+
+  <footer>
+    GARUDA QUANTUM 4D · 内部决策材料 · 2026-11-13 · 示例中的数值为初始建议值，上线后按实际拦截效果调整
+  </footer>
+
+</div>
+</body>
+</html>
