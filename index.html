@@ -213,6 +213,8 @@
   .wa-float:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(15,23,42,.22);}
   .wa-float:active{transform:translateY(0);}
   .wa-float svg{width:17px;height:17px;fill:currentColor;flex:0 0 17px;}
+  /* 底部留白：避免悬浮 CTA 盖住最后一个选项 */
+  main{padding-bottom:110px;}
   .wa-float[disabled]{opacity:.55;cursor:not-allowed;transform:none;}
   body.is-done .wa-float{display:none;}
 
