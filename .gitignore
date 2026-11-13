@@ -18,3 +18,7 @@ node_modules/
 
 # 页面快照（体积大，不入库）
 快照/
+
+# 含内部标识，仅本地保留
+部署配置.md
+apps-script/落地页拦截/.clasp.json
