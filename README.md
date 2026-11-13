@@ -6,6 +6,7 @@
 
 ```
 index.html                     落地页（前端探针、问卷、跳转判定）
+privacy.html                   Kebijakan Privasi（印尼语隐私政策）
 apps-script/落地页拦截/
   src/1_Config.gs              配置、表头、通用工具
   src/2_Gate.gs                入口、编排、日志、账号下发

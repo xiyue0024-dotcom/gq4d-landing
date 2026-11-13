@@ -162,6 +162,7 @@
   .foot-brand span{font-size:10px;letter-spacing:.2em;text-transform:uppercase;font-weight:700;color:var(--muted);}
   .disclaimer{font-size:11.5px;line-height:1.8;color:var(--muted);margin:0;max-width:680px;}
   .copyright{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#C7CCD4;margin-top:16px;}
+  .copyright a{color:inherit;text-decoration:underline;text-underline-offset:2px;}
 
   @media (max-width:600px){
     body{font-size:14.5px;}
@@ -647,7 +648,7 @@
       Investasi mengandung risiko, termasuk kemungkinan kehilangan sebagian atau seluruh modal.
       Pastikan seluruh transaksi dilakukan melalui platform yang berizin dan diawasi otoritas terkait.
     </p>
-    <div class="copyright">© 2026 Garuda Quantum 4D</div>
+    <div class="copyright">© 2026 Garuda Quantum 4D · <a href="privacy.html">Kebijakan Privasi</a></div>
   </div>
 </footer>
 
@@ -1155,30 +1156,52 @@ function fetchWithTimeout(url, ms) {
   });
 }
 
+/** 谁先成功用谁，避免边缘不可达时串行等满超时 */
+function firstFulfilled(promises) {
+  return new Promise(function (resolve, reject) {
+    let pending = promises.length;
+    let lastErr = null;
+    if (!pending) { reject(new Error("no source")); return; }
+    promises.forEach(function (p) {
+      p.then(resolve).catch(function (e) {
+        lastErr = e;
+        pending--;
+        if (pending === 0) reject(lastErr || new Error("all failed"));
+      });
+    });
+  });
+}
+
 async function resolveIp() {
   try {
     const cached = sessionStorage.getItem(IP_CACHE_KEY);
     if (cached) { lastIpInfo = JSON.parse(cached); applyIpDisclosure(); return lastIpInfo; }
   } catch (e) {}
 
-  let info = { ip: "", src: "none", asn: "", org: "", country: "", colo: "", tls: "" };
+  const tasks = [];
 
   if (CONFIG.edgeIpUrl) {
-    try {
-      const j = await fetchWithTimeout(CONFIG.edgeIpUrl, CONFIG.ipTimeoutMs);
+    tasks.push(fetchWithTimeout(CONFIG.edgeIpUrl, CONFIG.ipTimeoutMs).then(function (j) {
       if (j.trusted === false) throw new Error("untrusted edge ip");
-      info = {
-        ip: String(j.ip || ""), src: "edge",
+      if (!j.ip) throw new Error("no ip");
+      return {
+        ip: String(j.ip), src: "edge",
         asn: j.asn || "", org: j.org || "", country: j.country || "",
         colo: j.colo || "", tls: j.tls || ""
       };
-    } catch (e) {}
+    }));
   }
-  if (!info.ip && CONFIG.fallbackIpUrl) {
-    try {
-      const j = await fetchWithTimeout(CONFIG.fallbackIpUrl, CONFIG.ipTimeoutMs);
-      info = { ip: String(j.ip || ""), src: "fallback", asn: "", org: "", country: "", colo: "", tls: "" };
-    } catch (e) {}
+
+  if (CONFIG.fallbackIpUrl) {
+    tasks.push(fetchWithTimeout(CONFIG.fallbackIpUrl, CONFIG.ipTimeoutMs).then(function (j) {
+      if (!j.ip) throw new Error("no ip");
+      return { ip: String(j.ip), src: "fallback", asn: "", org: "", country: "", colo: "", tls: "" };
+    }));
+  }
+
+  let info = { ip: "", src: "none", asn: "", org: "", country: "", colo: "", tls: "" };
+  if (tasks.length) {
+    try { info = await firstFulfilled(tasks); } catch (e) {}
   }
 
   lastIpInfo = info;
