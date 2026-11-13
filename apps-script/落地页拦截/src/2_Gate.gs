@@ -21,6 +21,70 @@ function doGet(e) {
   return json_({ status: 'ok', version: BUILD_VERSION, time: timeStr_() });
 }
 
+function doPost(e) {
+  let body;
+  try {
+    body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  } catch (err) {
+    return json_({ ok: false, msg: busyMsg_(), mode: CFG.BLOCK.MODE });
+  }
+
+  const cfg = readConfig_();
+
+  if (CFG.GATE.REQUIRE_SECRET) {
+    const secret = prop_(CFG.GATE.SECRET_PROP, '');
+    if (!secret || String(body.k || '') !== secret) {
+      return json_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE });
+    }
+  }
+
+  // 同一 rid 重复提交直接回放上次结果（前端超时重试不会重复记账）
+  const cached = ridCached_(body.rid);
+  if (cached) return json_(cached);
+
+  const res = handleGate_(body, cfg);
+  ridStore_(body.rid, res);
+  return json_(res);
+}
+
+/** JSONP 降级：由 CFG.GATE.ALLOW_JSONP 控制；POST 仍强制密钥 */
+function handleJsonp_(p) {
+  const cb = String(p.cb || '').replace(/[^A-Za-z0-9_$.]/g, '').slice(0, 60);
+  const cfg = readConfig_();
+  if (!CFG.GATE.ALLOW_JSONP) {
+    return jsonp_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE }, cb);
+  }
+  try {
+    const d = JSON.parse(String(p.d || '{}'));
+    const cached = ridCached_(d.rid);
+    if (cached) return jsonp_(cached, cb);
+    const res = handleGate_(d, cfg);
+    ridStore_(d.rid, res);
+    return jsonp_(res, cb);
+  } catch (e) {
+    return jsonp_({ ok: false, msg: busyMsg_(), mode: cfg.BLOCK_MODE }, cb);
+  }
+}
+
+/* ======================= 幂等（重试去重） ======================= */
+
+function ridCached_(rid) {
+  const k = String(rid || '');
+  if (!k || k.length > 64) return null;
+  try {
+    const v = CacheService.getScriptCache().get('rid_' + k);
+    return v ? JSON.parse(v) : null;
+  } catch (e) {
+    return null;
+  }
+}
+
+function ridStore_(rid, res) {
+  const k = String(rid || '');
+  if (!k || k.length > 64) return;
+  try { CacheService.getScriptCache().put('rid_' + k, JSON.stringify(res), 900); } catch (e) {}
+}
+
 /* ======================= 编排 ======================= */
 
 /** 跳转判定主流程 */
